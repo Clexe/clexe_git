@@ -5,8 +5,8 @@ const { getBalance, getSplTokenBalance } = require('../utils/solana');
 const { findUser, upsertUser } = require('../database/userRepo');
 const logger = require('../utils/logger');
 
-function createWallet(telegramId, username, firstName) {
-  const existing = findUser(telegramId);
+async function createWallet(telegramId, username, firstName) {
+  const existing = await findUser(telegramId);
   if (existing && existing.wallet_public_key) {
     return {
       publicKey: existing.wallet_public_key,
@@ -18,7 +18,7 @@ function createWallet(telegramId, username, firstName) {
   const secretBase58 = bs58.encode(keypair.secretKey);
   const encryptedSecret = encrypt(secretBase58);
 
-  upsertUser({
+  await upsertUser({
     telegramId,
     username,
     firstName,
@@ -34,7 +34,7 @@ function createWallet(telegramId, username, firstName) {
   };
 }
 
-function importWallet(telegramId, username, firstName, privateKeyBase58) {
+async function importWallet(telegramId, username, firstName, privateKeyBase58) {
   let keypair;
   try {
     keypair = Keypair.fromSecretKey(bs58.decode(privateKeyBase58));
@@ -43,7 +43,7 @@ function importWallet(telegramId, username, firstName, privateKeyBase58) {
   }
 
   const encryptedSecret = encrypt(privateKeyBase58);
-  upsertUser({
+  await upsertUser({
     telegramId,
     username,
     firstName,
@@ -55,8 +55,8 @@ function importWallet(telegramId, username, firstName, privateKeyBase58) {
   return { publicKey: keypair.publicKey.toBase58() };
 }
 
-function getKeypair(telegramId) {
-  const user = findUser(telegramId);
+async function getKeypair(telegramId) {
+  const user = await findUser(telegramId);
   if (!user || !user.wallet_encrypted_secret) {
     throw new Error('No wallet found. Use /wallet to create one.');
   }
@@ -64,26 +64,26 @@ function getKeypair(telegramId) {
   return Keypair.fromSecretKey(bs58.decode(secretBase58));
 }
 
-function getPublicKey(telegramId) {
-  const user = findUser(telegramId);
+async function getPublicKey(telegramId) {
+  const user = await findUser(telegramId);
   if (!user || !user.wallet_public_key) return null;
   return user.wallet_public_key;
 }
 
 async function getWalletBalance(telegramId) {
-  const pubkey = getPublicKey(telegramId);
+  const pubkey = await getPublicKey(telegramId);
   if (!pubkey) throw new Error('No wallet found.');
   return getBalance(pubkey);
 }
 
 async function getTokenBalance(telegramId, mintAddress) {
-  const pubkey = getPublicKey(telegramId);
+  const pubkey = await getPublicKey(telegramId);
   if (!pubkey) throw new Error('No wallet found.');
   return getSplTokenBalance(pubkey, mintAddress);
 }
 
-function exportPrivateKey(telegramId) {
-  const user = findUser(telegramId);
+async function exportPrivateKey(telegramId) {
+  const user = await findUser(telegramId);
   if (!user || !user.wallet_encrypted_secret) {
     throw new Error('No wallet found.');
   }

@@ -35,7 +35,7 @@ async function getQuote(inputMint, outputMint, amount, slippageBps) {
 
 async function executeSwap(telegramId, { inputMint, outputMint, amount, slippageBps }) {
   const tradeType = inputMint === SOL_MINT ? 'buy' : 'sell';
-  const tradeId = createTrade({
+  const tradeId = await createTrade({
     userTelegramId: telegramId,
     tradeType,
     tokenMint: tradeType === 'buy' ? outputMint : inputMint,
@@ -44,7 +44,7 @@ async function executeSwap(telegramId, { inputMint, outputMint, amount, slippage
   });
 
   try {
-    const keypair = getKeypair(telegramId);
+    const keypair = await getKeypair(telegramId);
     const quote = await getQuote(inputMint, outputMint, amount, slippageBps);
 
     const { data: swapData } = await axios.post(`${JUPITER_API}/swap`, {
@@ -67,7 +67,7 @@ async function executeSwap(telegramId, { inputMint, outputMint, amount, slippage
 
     await conn.confirmTransaction(signature, config.solana.commitment);
 
-    updateTrade(tradeId, {
+    await updateTrade(tradeId, {
       tx_signature: signature,
       amount_out: quote.outAmount,
       status: 'completed',
@@ -85,7 +85,7 @@ async function executeSwap(telegramId, { inputMint, outputMint, amount, slippage
       tradeType,
     };
   } catch (err) {
-    updateTrade(tradeId, { status: 'failed' });
+    await updateTrade(tradeId, { status: 'failed' });
     logger.error({ err: err.message, telegramId, tradeId }, 'Trade failed');
     throw new Error(`Trade failed: ${err.message}`);
   }

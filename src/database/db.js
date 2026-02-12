@@ -1,32 +1,47 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+const { Pool } = require('pg');
+const config = require('../config');
 const logger = require('../utils/logger');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/bot.db');
+let pool = null;
 
-let db = null;
+function getPool() {
+  if (!pool) {
+    if (!config.database.url) {
+      throw new Error('DATABASE_URL is required. Set it in your environment variables.');
+    }
+    pool = new Pool({
+      connectionString: config.database.url,
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+      ssl: config.database.url.includes('localhost') ? false : { rejectUnauthorized: false },
+    });
 
-function getDb() {
-  if (!db) {
-    const fs = require('fs');
-    const dir = path.dirname(DB_PATH);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    pool.on('error', (err) => {
+      logger.error({ err: err.message }, 'Unexpected PostgreSQL pool error');
+    });
 
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    db.pragma('synchronous = NORMAL');
-    db.pragma('cache_size = -64000'); // 64MB cache
-    db.pragma('busy_timeout = 5000');
-    logger.info('Database connected');
+    logger.info('PostgreSQL pool created');
   }
-  return db;
+  return pool;
 }
 
-function closeDb() {
-  if (db) {
-    db.close();
-    db = null;
+async function query(text, params) {
+  const p = getPool();
+  return p.query(text, params);
+}
+
+async function getClient() {
+  const p = getPool();
+  return p.connect();
+}
+
+async function closeDb() {
+  if (pool) {
+    await pool.end();
+    pool = null;
+    logger.info('PostgreSQL pool closed');
   }
 }
 
-module.exports = { getDb, closeDb };
+module.exports = { getPool, query, getClient, closeDb };

@@ -3,7 +3,7 @@ const { upsertUser } = require('../../database/userRepo');
 
 function register(bot) {
   bot.command('start', async (ctx) => {
-    upsertUser({
+    await upsertUser({
       telegramId: ctx.from.id,
       username: ctx.from.username || null,
       firstName: ctx.from.first_name || null,

@@ -83,7 +83,7 @@ async function payForDexBoost(telegramId, tokenMint, tierKey) {
     throw new Error('DexScreener payment wallet not configured. Contact admin.');
   }
 
-  const paymentId = createDexPayment({
+  const paymentId = await createDexPayment({
     userTelegramId: telegramId,
     tokenMint,
     paymentType: tierKey,
@@ -91,10 +91,10 @@ async function payForDexBoost(telegramId, tokenMint, tierKey) {
   });
 
   try {
-    const keypair = getKeypair(telegramId);
+    const keypair = await getKeypair(telegramId);
     const signature = await sendSol(keypair, config.dexscreener.paymentWallet, tier.costSol);
 
-    updateDexPayment(paymentId, {
+    await updateDexPayment(paymentId, {
       tx_signature: signature,
       status: 'completed',
     });
@@ -108,7 +108,7 @@ async function payForDexBoost(telegramId, tokenMint, tierKey) {
       amountSol: tier.costSol,
     };
   } catch (err) {
-    updateDexPayment(paymentId, { status: 'failed' });
+    await updateDexPayment(paymentId, { status: 'failed' });
     logger.error({ err: err.message, telegramId, tierKey }, 'DEX boost payment failed');
     throw new Error(`Payment failed: ${err.message}`);
   }

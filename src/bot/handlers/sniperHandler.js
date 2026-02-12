@@ -29,7 +29,7 @@ function register(bot) {
   });
 
   bot.callbackQuery('snipe:list', async (ctx) => {
-    const orders = getActiveSnipeOrders().filter(o => o.user_telegram_id === ctx.from.id);
+    const orders = (await getActiveSnipeOrders()).filter(o => o.user_telegram_id === ctx.from.id);
     if (orders.length === 0) {
       await ctx.editMessageText('📋 No active snipe orders.', { reply_markup: sniperMenuKeyboard() });
     } else {
@@ -46,9 +46,9 @@ function register(bot) {
   });
 
   bot.callbackQuery('snipe:cancelall', async (ctx) => {
-    const orders = getActiveSnipeOrders().filter(o => o.user_telegram_id === ctx.from.id);
+    const orders = (await getActiveSnipeOrders()).filter(o => o.user_telegram_id === ctx.from.id);
     for (const order of orders) {
-      updateSnipeOrder(order.id, { status: 'cancelled' });
+      await updateSnipeOrder(order.id, { status: 'cancelled' });
     }
     await ctx.editMessageText(`✅ Cancelled ${orders.length} snipe order(s).`, {
       reply_markup: sniperMenuKeyboard(),
@@ -96,7 +96,7 @@ function register(bot) {
 
       sessions.delete(ctx.from.id);
       try {
-        createSnipeOrder({
+        await createSnipeOrder({
           userTelegramId: ctx.from.id,
           tokenMint: session.tokenMint,
           pairAddress: null,

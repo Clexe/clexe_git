@@ -5,15 +5,28 @@ services:
     build: .
     restart: unless-stopped
     env_file: .env
-    volumes:
-      - bot-data:/app/data
+    environment:
+      DATABASE_URL: postgresql://dexbot:dexbot@postgres:5432/dexbot
     depends_on:
+      - postgres
       - redis
     deploy:
       resources:
         limits:
           memory: 512M
           cpus: "1.0"
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dexbot
+      POSTGRES_PASSWORD: dexbot
+      POSTGRES_DB: dexbot
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine
@@ -25,5 +38,5 @@ services:
     command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
 
 volumes:
-  bot-data:
+  pg-data:
   redis-data:

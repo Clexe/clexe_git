@@ -1,45 +1,42 @@
-const { getDb } = require('./db');
+const { query } = require('./db');
 
-const stmtCache = {};
-
-function getStmt(key, sql) {
-  if (!stmtCache[key]) {
-    stmtCache[key] = getDb().prepare(sql);
-  }
-  return stmtCache[key];
+async function findUser(telegramId) {
+  const { rows } = await query('SELECT * FROM users WHERE telegram_id = $1', [telegramId]);
+  return rows[0] || null;
 }
 
-function findUser(telegramId) {
-  return getStmt('findUser', 'SELECT * FROM users WHERE telegram_id = ?').get(telegramId);
-}
-
-function upsertUser({ telegramId, username, firstName, walletPublicKey, walletEncryptedSecret }) {
-  return getStmt(
-    'upsertUser',
+async function upsertUser({ telegramId, username, firstName, walletPublicKey, walletEncryptedSecret }) {
+  await query(
     `INSERT INTO users (telegram_id, username, first_name, wallet_public_key, wallet_encrypted_secret)
-     VALUES (?, ?, ?, ?, ?)
+     VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT(telegram_id) DO UPDATE SET
-       username = excluded.username,
-       first_name = excluded.first_name,
-       wallet_public_key = COALESCE(excluded.wallet_public_key, users.wallet_public_key),
-       wallet_encrypted_secret = COALESCE(excluded.wallet_encrypted_secret, users.wallet_encrypted_secret),
-       updated_at = datetime('now')`
-  ).run(telegramId, username, firstName, walletPublicKey, walletEncryptedSecret);
+       username = EXCLUDED.username,
+       first_name = EXCLUDED.first_name,
+       wallet_public_key = COALESCE(EXCLUDED.wallet_public_key, users.wallet_public_key),
+       wallet_encrypted_secret = COALESCE(EXCLUDED.wallet_encrypted_secret, users.wallet_encrypted_secret),
+       updated_at = NOW()`,
+    [telegramId, username, firstName, walletPublicKey, walletEncryptedSecret]
+  );
 }
 
-function updateUserSettings(telegramId, settings) {
-  return getStmt('updateSettings', 'UPDATE users SET settings_json = ?, updated_at = datetime(\'now\') WHERE telegram_id = ?')
-    .run(JSON.stringify(settings), telegramId);
+async function updateUserSettings(telegramId, settings) {
+  await query(
+    'UPDATE users SET settings_json = $1, updated_at = NOW() WHERE telegram_id = $2',
+    [JSON.stringify(settings), telegramId]
+  );
 }
 
-function getUserSettings(telegramId) {
-  const user = findUser(telegramId);
+async function getUserSettings(telegramId) {
+  const user = await findUser(telegramId);
   if (!user) return {};
-  try { return JSON.parse(user.settings_json || '{}'); } catch { return {}; }
+  try {
+    return typeof user.settings_json === 'object' ? user.settings_json : JSON.parse(user.settings_json || '{}');
+  } catch { return {}; }
 }
 
-function countUsers() {
-  return getStmt('countUsers', 'SELECT COUNT(*) as count FROM users').get().count;
+async function countUsers() {
+  const { rows } = await query('SELECT COUNT(*) as count FROM users');
+  return parseInt(rows[0].count, 10);
 }
 
 module.exports = { findUser, upsertUser, updateUserSettings, getUserSettings, countUsers };

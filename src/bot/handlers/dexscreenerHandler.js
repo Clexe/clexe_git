@@ -75,7 +75,7 @@ function register(bot) {
   });
 
   bot.callbackQuery('dex:mypayments', async (ctx) => {
-    const payments = getUserDexPayments(ctx.from.id);
+    const payments = await getUserDexPayments(ctx.from.id);
     if (payments.length === 0) {
       await ctx.editMessageText('📋 No payments yet.', { reply_markup: dexscreenerMenuKeyboard() });
     } else {

@@ -4,7 +4,7 @@ const { mainMenuKeyboard } = require('../menus/mainMenu');
 
 function register(bot) {
   bot.command('admin', adminOnly(), async (ctx) => {
-    const userCount = countUsers();
+    const userCount = await countUsers();
     const memUsage = process.memoryUsage();
     const uptime = process.uptime();
 

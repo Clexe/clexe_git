@@ -5,7 +5,7 @@ const sessions = new Map();
 
 function register(bot) {
   bot.command('settings', async (ctx) => {
-    const settings = getUserSettings(ctx.from.id);
+    const settings = await getUserSettings(ctx.from.id);
     await ctx.reply(
       `⚙️ *Settings*\n\n` +
       `Slippage: *${settings.slippageBps || 300} bps* (${(settings.slippageBps || 300) / 100}%)\n` +
@@ -15,7 +15,7 @@ function register(bot) {
   });
 
   bot.callbackQuery('menu:settings', async (ctx) => {
-    const settings = getUserSettings(ctx.from.id);
+    const settings = await getUserSettings(ctx.from.id);
     await ctx.editMessageText(
       `⚙️ *Settings*\n\n` +
       `Slippage: *${settings.slippageBps || 300} bps*\n` +
@@ -48,7 +48,7 @@ function register(bot) {
       return;
     }
 
-    const settings = getUserSettings(ctx.from.id);
+    const settings = await getUserSettings(ctx.from.id);
 
     if (session.action === 'set_slippage') {
       const val = parseInt(text, 10);
@@ -58,7 +58,7 @@ function register(bot) {
       }
       sessions.delete(ctx.from.id);
       settings.slippageBps = val;
-      updateUserSettings(ctx.from.id, settings);
+      await updateUserSettings(ctx.from.id, settings);
       await ctx.reply(`✅ Slippage set to *${val} bps* (${val / 100}%)`, {
         parse_mode: 'Markdown',
         reply_markup: settingsMenuKeyboard(),
@@ -74,7 +74,7 @@ function register(bot) {
       }
       sessions.delete(ctx.from.id);
       settings.priorityFee = val;
-      updateUserSettings(ctx.from.id, settings);
+      await updateUserSettings(ctx.from.id, settings);
       await ctx.reply(`✅ Priority fee set to *${val} microlamports*`, {
         parse_mode: 'Markdown',
         reply_markup: settingsMenuKeyboard(),

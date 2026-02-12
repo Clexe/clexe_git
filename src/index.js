@@ -8,7 +8,7 @@ async function main() {
   logger.info('Starting DEX Trading Bot...');
 
   // Run database migrations
-  migrate();
+  await migrate();
 
   // Create and start bot
   const bot = createBot();
@@ -22,7 +22,7 @@ async function main() {
     stopSnipeWorker();
     await bot.stop();
     const { closeDb } = require('./database/db');
-    closeDb();
+    await closeDb();
     process.exit(0);
   };
 

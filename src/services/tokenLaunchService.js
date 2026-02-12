@@ -40,7 +40,7 @@ async function launchToken(telegramId, params) {
     throw new Error('Total supply must be positive.');
   }
 
-  const launchId = createTokenLaunch({
+  const launchId = await createTokenLaunch({
     creatorTelegramId: telegramId,
     tokenName,
     tokenSymbol,
@@ -52,7 +52,7 @@ async function launchToken(telegramId, params) {
 
   try {
     const conn = getConnection();
-    const creatorKeypair = getKeypair(telegramId);
+    const creatorKeypair = await getKeypair(telegramId);
     const mintKeypair = Keypair.generate();
 
     const lamports = await getMinimumBalanceForRentExemptMint(conn);
@@ -88,7 +88,7 @@ async function launchToken(telegramId, params) {
         mintKeypair.publicKey,
         decimals,
         creatorKeypair.publicKey,
-        creatorKeypair.publicKey // freeze authority (creator can revoke later)
+        creatorKeypair.publicKey
       )
     );
 
@@ -117,7 +117,7 @@ async function launchToken(telegramId, params) {
 
     const signature = await sendTransactionWithRetry(tx, [creatorKeypair, mintKeypair]);
 
-    updateTokenLaunch(launchId, {
+    await updateTokenLaunch(launchId, {
       mint_address: mintKeypair.publicKey.toBase58(),
       tx_signature: signature,
       status: 'minted',
@@ -140,21 +140,19 @@ async function launchToken(telegramId, params) {
       decimals,
     };
   } catch (err) {
-    updateTokenLaunch(launchId, { status: 'failed' });
+    await updateTokenLaunch(launchId, { status: 'failed' });
     logger.error({ err: err.message, telegramId, launchId }, 'Token launch failed');
     throw new Error(`Token launch failed: ${err.message}`);
   }
 }
 
 async function addLiquidity(telegramId, launchId, solAmount) {
-  const launch = getTokenLaunch(launchId);
+  const launch = await getTokenLaunch(launchId);
   if (!launch) throw new Error('Launch not found');
   if (launch.creator_telegram_id !== telegramId) throw new Error('Unauthorized');
   if (!launch.mint_address) throw new Error('Token not yet minted');
 
-  // Placeholder for Raydium/Orca pool creation
-  // In production, integrate with Raydium SDK to create AMM pool
-  updateTokenLaunch(launchId, {
+  await updateTokenLaunch(launchId, {
     initial_liquidity_sol: solAmount,
     status: 'liquidity_pending',
   });
@@ -170,11 +168,11 @@ async function addLiquidity(telegramId, launchId, solAmount) {
   };
 }
 
-function getLaunchStatus(launchId) {
+async function getLaunchStatus(launchId) {
   return getTokenLaunch(launchId);
 }
 
-function getMyLaunches(telegramId) {
+async function getMyLaunches(telegramId) {
   return getUserLaunches(telegramId);
 }
 

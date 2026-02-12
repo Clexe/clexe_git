@@ -11,6 +11,9 @@ const config = {
     backupRpcUrl: process.env.SOLANA_BACKUP_RPC_URL,
     commitment: process.env.COMMITMENT_LEVEL || 'confirmed',
   },
+  database: {
+    url: process.env.DATABASE_URL,
+  },
   redis: {
     url: process.env.REDIS_URL || 'redis://localhost:6379',
   },

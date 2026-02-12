@@ -12,7 +12,7 @@ async function checkAndExecuteSnipes(bot) {
   running = true;
 
   try {
-    const orders = getActiveSnipeOrders();
+    const orders = await getActiveSnipeOrders();
     if (orders.length === 0) {
       running = false;
       return;
@@ -36,7 +36,7 @@ async function checkAndExecuteSnipes(bot) {
 
         if (accounts.length > 0) {
           logger.info({ orderId: order.id, mint }, 'Snipe target has liquidity, executing');
-          updateSnipeOrder(order.id, { status: 'executing', triggered_at: new Date().toISOString() });
+          await updateSnipeOrder(order.id, { status: 'executing', triggered_at: new Date().toISOString() });
 
           try {
             const result = await buyToken(
@@ -45,7 +45,7 @@ async function checkAndExecuteSnipes(bot) {
               order.amount_sol,
               order.slippage_bps
             );
-            updateSnipeOrder(order.id, { status: 'completed', tx_signature: result.signature });
+            await updateSnipeOrder(order.id, { status: 'completed', tx_signature: result.signature });
 
             // Notify user
             try {
@@ -56,7 +56,7 @@ async function checkAndExecuteSnipes(bot) {
               );
             } catch {}
           } catch (err) {
-            updateSnipeOrder(order.id, { status: 'failed' });
+            await updateSnipeOrder(order.id, { status: 'failed' });
             logger.error({ err: err.message, orderId: order.id }, 'Snipe execution failed');
             try {
               await bot.api.sendMessage(
