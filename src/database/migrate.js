@@ -2,6 +2,10 @@ const { query, closeDb } = require('./db');
 const logger = require('../utils/logger');
 
 async function migrate() {
+  // Test connectivity before running migrations
+  const result = await query('SELECT 1');
+  logger.info('Database connection verified');
+
   await query(`
     CREATE TABLE IF NOT EXISTS users (
       telegram_id BIGINT PRIMARY KEY,

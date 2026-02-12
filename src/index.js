@@ -49,6 +49,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  logger.fatal({ err: err.message, stack: err.stack }, 'Failed to start');
+  logger.fatal({ err: err.message, stack: err.stack, code: err.code }, 'Failed to start');
+  console.error('FATAL:', err);
   process.exit(1);
 });
