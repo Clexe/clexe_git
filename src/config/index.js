@@ -29,6 +29,8 @@ const config = {
     maxSlippageBps: parseInt(process.env.MAX_SLIPPAGE_BPS || '300', 10),
     priorityFeeLamports: parseInt(process.env.PRIORITY_FEE_LAMPORTS || '100000', 10),
     txTimeoutMs: parseInt(process.env.TX_TIMEOUT_MS || '60000', 10),
+    platformFeeBps: parseInt(process.env.PLATFORM_FEE_BPS || '0', 10),
+    platformFeeWallet: process.env.PLATFORM_FEE_WALLET,
   },
   rateLimit: {
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),

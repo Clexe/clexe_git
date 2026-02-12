@@ -5,7 +5,7 @@ const {
   ComputeBudgetProgram,
   VersionedTransaction,
 } = require('@solana/web3.js');
-const { getConnection, sendTransactionWithRetry } = require('../utils/solana');
+const { getConnection, sendTransactionWithRetry, sendSol } = require('../utils/solana');
 const { getKeypair } = require('./walletService');
 const { createTrade, updateTrade } = require('../database/tradeRepo');
 const config = require('../config');
@@ -13,6 +13,29 @@ const logger = require('../utils/logger');
 
 const JUPITER_API = 'https://quote-api.jup.ag/v6';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+function calculatePlatformFee(lamports) {
+  const feeBps = config.trading.platformFeeBps;
+  const feeWallet = config.trading.platformFeeWallet;
+  if (!feeBps || !feeWallet) return { fee: 0, wallet: null };
+  return {
+    fee: Math.floor(lamports * feeBps / 10000),
+    wallet: feeWallet,
+  };
+}
+
+async function collectPlatformFee(keypair, feeLamports, feeWallet) {
+  if (!feeLamports || !feeWallet) return null;
+  try {
+    const solAmount = feeLamports / 1e9;
+    const sig = await sendSol(keypair, feeWallet, solAmount);
+    logger.info({ fee: solAmount, feeWallet, signature: sig }, 'Platform fee collected');
+    return sig;
+  } catch (err) {
+    logger.error({ err: err.message, feeLamports, feeWallet }, 'Platform fee transfer failed');
+    return null;
+  }
+}
 
 async function getQuote(inputMint, outputMint, amount, slippageBps) {
   try {
@@ -45,7 +68,16 @@ async function executeSwap(telegramId, { inputMint, outputMint, amount, slippage
 
   try {
     const keypair = await getKeypair(telegramId);
-    const quote = await getQuote(inputMint, outputMint, amount, slippageBps);
+
+    // Calculate platform fee for buy orders (deduct from SOL input)
+    let swapAmount = amount;
+    let feeInfo = { fee: 0, wallet: null };
+    if (tradeType === 'buy') {
+      feeInfo = calculatePlatformFee(amount);
+      swapAmount = amount - feeInfo.fee;
+    }
+
+    const quote = await getQuote(inputMint, outputMint, swapAmount, slippageBps);
 
     const { data: swapData } = await axios.post(`${JUPITER_API}/swap`, {
       quoteResponse: quote,
@@ -74,6 +106,16 @@ async function executeSwap(telegramId, { inputMint, outputMint, amount, slippage
     });
 
     logger.info({ telegramId, tradeId, signature, tradeType }, 'Trade executed');
+
+    // Collect platform fee
+    if (tradeType === 'buy') {
+      // Fee was already deducted from input; transfer it to platform wallet
+      await collectPlatformFee(keypair, feeInfo.fee, feeInfo.wallet);
+    } else {
+      // For sells, take fee from SOL output
+      const sellFeeInfo = calculatePlatformFee(Number(quote.outAmount));
+      await collectPlatformFee(keypair, sellFeeInfo.fee, sellFeeInfo.wallet);
+    }
 
     return {
       tradeId,
