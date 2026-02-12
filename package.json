@@ -1,0 +1,37 @@
+{
+  "name": "dex-trading-telegram-bot",
+  "version": "1.0.0",
+  "description": "High-performance Telegram bot for DexScreener paid boosts, token launches, and DEX trading on Solana",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest --coverage",
+    "lint": "eslint src/",
+    "migrate": "node src/database/migrate.js"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.29.0",
+    "@solana/spl-token": "^0.3.9",
+    "@solana/web3.js": "^1.87.6",
+    "axios": "^1.6.2",
+    "better-sqlite3": "^9.4.3",
+    "bs58": "^5.0.0",
+    "bullmq": "^5.1.0",
+    "dotenv": "^16.3.1",
+    "grammy": "^1.20.3",
+    "ioredis": "^5.3.2",
+    "pino": "^8.17.2",
+    "pino-pretty": "^10.3.1",
+    "tweetnacl": "^1.0.3",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
