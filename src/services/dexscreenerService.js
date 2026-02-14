@@ -75,7 +75,7 @@ function getPaymentTiers() {
   return PAYMENT_TIERS;
 }
 
-async function payForDexBoost(telegramId, tokenMint, tierKey) {
+async function payForDexBoost(telegramId, tokenMint, tierKey, tokenInfo = null) {
   const tier = PAYMENT_TIERS[tierKey];
   if (!tier) throw new Error(`Invalid payment tier: ${tierKey}`);
 
@@ -88,6 +88,7 @@ async function payForDexBoost(telegramId, tokenMint, tierKey) {
     tokenMint,
     paymentType: tierKey,
     amountSol: tier.costSol,
+    tokenInfo,
   });
 
   try {

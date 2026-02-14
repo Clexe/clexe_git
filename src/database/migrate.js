@@ -81,6 +81,9 @@ async function migrate() {
     )
   `);
 
+  // Add token_info column for profile updates (safe to run multiple times)
+  await query(`ALTER TABLE dex_payments ADD COLUMN IF NOT EXISTS token_info JSONB`);
+
   await query(`CREATE INDEX IF NOT EXISTS idx_users_wallet ON users(wallet_public_key)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_launches_creator ON token_launches(creator_telegram_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_launches_mint ON token_launches(mint_address)`);

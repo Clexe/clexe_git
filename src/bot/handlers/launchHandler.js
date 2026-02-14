@@ -29,7 +29,7 @@ function register(bot) {
   });
 
   bot.callbackQuery('launch:list', async (ctx) => {
-    const launches = tokenLaunchService.getMyLaunches(ctx.from.id);
+    const launches = await tokenLaunchService.getMyLaunches(ctx.from.id);
     if (launches.length === 0) {
       await ctx.editMessageText('📋 No token launches yet.', { reply_markup: launchMenuKeyboard() });
     } else {

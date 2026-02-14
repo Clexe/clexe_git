@@ -1,6 +1,7 @@
 const { dexscreenerMenuKeyboard, boostTierKeyboard, mainMenuKeyboard } = require('../menus/mainMenu');
 const dexService = require('../../services/dexscreenerService');
 const { getUserDexPayments } = require('../../database/tradeRepo');
+const walletService = require('../../services/walletService');
 
 const sessions = new Map();
 
@@ -21,6 +22,11 @@ function register(bot) {
   });
 
   bot.command('boost', async (ctx) => {
+    const pubkey = await walletService.getPublicKey(ctx.from.id);
+    if (!pubkey) {
+      await ctx.reply('❌ You need a wallet first. Use /wallet to create or import one.');
+      return;
+    }
     sessions.set(ctx.from.id, { action: 'boost_pay', step: 'token' });
     await ctx.reply('💎 *Pay for Boost*\n\nSend the token mint address:', { parse_mode: 'Markdown' });
   });
@@ -69,6 +75,14 @@ function register(bot) {
   });
 
   bot.callbackQuery('dex:pay', async (ctx) => {
+    const pubkey = await walletService.getPublicKey(ctx.from.id);
+    if (!pubkey) {
+      await ctx.editMessageText('❌ You need a wallet first. Use /wallet to create or import one.', {
+        reply_markup: dexscreenerMenuKeyboard(),
+      });
+      await ctx.answerCallbackQuery();
+      return;
+    }
     sessions.set(ctx.from.id, { action: 'boost_pay', step: 'token' });
     await ctx.editMessageText('💎 *Pay for DexScreener Boost*\n\nSend the token mint address:', { parse_mode: 'Markdown' });
     await ctx.answerCallbackQuery();
@@ -98,6 +112,22 @@ function register(bot) {
       const session = sessions.get(ctx.from.id);
       if (!session || !session.tokenMint) {
         await ctx.editMessageText('❌ Session expired. Start again.', { reply_markup: dexscreenerMenuKeyboard() });
+        await ctx.answerCallbackQuery();
+        return;
+      }
+
+      // For profile_update, collect token info before payment
+      if (tier === 'profile_update') {
+        session.selectedTier = tier;
+        session.action = 'profile_update_info';
+        session.step = 'icon_url';
+        session.tokenInfo = {};
+        await ctx.editMessageText(
+          '📝 *Token Profile Update*\n\n' +
+          'Please provide your token info. This will be included with your payment.\n\n' +
+          '*Step 1/5:* Send your token icon URL (or type "skip"):',
+          { parse_mode: 'Markdown' }
+        );
         await ctx.answerCallbackQuery();
         return;
       }
@@ -145,6 +175,68 @@ function register(bot) {
       session.step = 'tier';
       await ctx.reply('Select a boost tier:', { reply_markup: boostTierKeyboard() });
       return;
+    }
+
+    if (session.action === 'profile_update_info') {
+      const skip = text.toLowerCase() === 'skip';
+
+      if (session.step === 'icon_url') {
+        session.tokenInfo.iconUrl = skip ? null : text;
+        session.step = 'website';
+        await ctx.reply('*Step 2/5:* Send your website URL (or type "skip"):', { parse_mode: 'Markdown' });
+        return;
+      }
+      if (session.step === 'website') {
+        session.tokenInfo.website = skip ? null : text;
+        session.step = 'description';
+        await ctx.reply('*Step 3/5:* Send a short description for your token (or type "skip"):', { parse_mode: 'Markdown' });
+        return;
+      }
+      if (session.step === 'description') {
+        session.tokenInfo.description = skip ? null : text;
+        session.step = 'twitter';
+        await ctx.reply('*Step 4/5:* Send your Twitter/X link (or type "skip"):', { parse_mode: 'Markdown' });
+        return;
+      }
+      if (session.step === 'twitter') {
+        session.tokenInfo.twitter = skip ? null : text;
+        session.step = 'telegram';
+        await ctx.reply('*Step 5/5:* Send your Telegram group link (or type "skip"):', { parse_mode: 'Markdown' });
+        return;
+      }
+      if (session.step === 'telegram') {
+        session.tokenInfo.telegram = skip ? null : text;
+
+        // Show summary and process payment
+        const info = session.tokenInfo;
+        const infoLines = [
+          info.iconUrl ? `Icon: ${info.iconUrl}` : null,
+          info.website ? `Website: ${info.website}` : null,
+          info.description ? `Description: ${info.description}` : null,
+          info.twitter ? `Twitter: ${info.twitter}` : null,
+          info.telegram ? `Telegram: ${info.telegram}` : null,
+        ].filter(Boolean);
+
+        const tierInfo = dexService.PAYMENT_TIERS.profile_update;
+        await ctx.reply(`⏳ Processing ${tierInfo.label} payment (${tierInfo.costSol} SOL)...`);
+
+        try {
+          const result = await dexService.payForDexBoost(ctx.from.id, session.tokenMint, 'profile_update', session.tokenInfo);
+          sessions.delete(ctx.from.id);
+          await ctx.reply(
+            `✅ *Profile Update Payment Sent!*\n\n` +
+            `Token: \`${session.tokenMint}\`\n` +
+            `Amount: *${result.amountSol} SOL*\n` +
+            `TX: [Solscan](https://solscan.io/tx/${result.signature})\n\n` +
+            (infoLines.length > 0 ? `*Token Info Submitted:*\n${infoLines.join('\n')}\n\n` : '') +
+            `Submit your token info at [DexScreener](https://dexscreener.com/token-update) with the TX signature above.`,
+            { parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: dexscreenerMenuKeyboard() }
+          );
+        } catch (err) {
+          await ctx.reply(`❌ Payment failed: ${err.message}`, { reply_markup: dexscreenerMenuKeyboard() });
+        }
+        return;
+      }
     }
 
     return next();

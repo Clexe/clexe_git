@@ -34,9 +34,9 @@ async function getUserLaunches(telegramId) {
 async function createDexPayment(data) {
   const id = uuidv4();
   await query(
-    `INSERT INTO dex_payments (id, user_telegram_id, token_mint, payment_type, amount_sol, status)
-     VALUES ($1, $2, $3, $4, $5, 'pending')`,
-    [id, data.userTelegramId, data.tokenMint, data.paymentType, data.amountSol]
+    `INSERT INTO dex_payments (id, user_telegram_id, token_mint, payment_type, amount_sol, token_info, status)
+     VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
+    [id, data.userTelegramId, data.tokenMint, data.paymentType, data.amountSol, data.tokenInfo ? JSON.stringify(data.tokenInfo) : null]
   );
   return id;
 }

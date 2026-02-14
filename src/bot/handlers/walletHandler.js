@@ -22,7 +22,7 @@ function register(bot) {
 
   bot.callbackQuery('wallet:create', async (ctx) => {
     try {
-      const result = walletService.createWallet(ctx.from.id, ctx.from.username, ctx.from.first_name);
+      const result = await walletService.createWallet(ctx.from.id, ctx.from.username, ctx.from.first_name);
       if (result.isNew) {
         await ctx.editMessageText(
           `✅ *Wallet Created!*\n\n` +
@@ -58,7 +58,7 @@ function register(bot) {
   bot.callbackQuery('wallet:balance', async (ctx) => {
     try {
       const balance = await walletService.getWalletBalance(ctx.from.id);
-      const pubkey = walletService.getPublicKey(ctx.from.id);
+      const pubkey = await walletService.getPublicKey(ctx.from.id);
       await ctx.editMessageText(
         `💵 *Wallet Balance*\n\n` +
         `Address: \`${pubkey}\`\n` +
@@ -73,7 +73,7 @@ function register(bot) {
 
   bot.callbackQuery('wallet:export', async (ctx) => {
     try {
-      const privateKey = walletService.exportPrivateKey(ctx.from.id);
+      const privateKey = await walletService.exportPrivateKey(ctx.from.id);
       // Send as a separate message that the user can delete
       await ctx.reply(
         `🔑 *Your Private Key:*\n\n\`${privateKey}\`\n\n` +
@@ -103,7 +103,7 @@ function register(bot) {
     }
 
     try {
-      const result = walletService.importWallet(ctx.from.id, ctx.from.username, ctx.from.first_name, text);
+      const result = await walletService.importWallet(ctx.from.id, ctx.from.username, ctx.from.first_name, text);
       // Try to delete the message containing the private key
       try { await ctx.deleteMessage(); } catch {}
       await ctx.reply(
@@ -119,7 +119,7 @@ function register(bot) {
   bot.command('balance', async (ctx) => {
     try {
       const balance = await walletService.getWalletBalance(ctx.from.id);
-      const pubkey = walletService.getPublicKey(ctx.from.id);
+      const pubkey = await walletService.getPublicKey(ctx.from.id);
       await ctx.reply(
         `💵 Balance: *${balance.toFixed(6)} SOL*\nAddress: \`${pubkey}\``,
         { parse_mode: 'Markdown' }
