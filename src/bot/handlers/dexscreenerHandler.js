@@ -61,9 +61,15 @@ function register(bot) {
       if (boosts.length === 0) {
         await ctx.editMessageText('No recent boosts found.', { reply_markup: dexscreenerMenuKeyboard() });
       } else {
-        const list = boosts.slice(0, 10).map((b, i) =>
-          `${i + 1}. ${b.tokenAddress ? `\`${b.tokenAddress.slice(0, 8)}...\`` : 'N/A'} — ${b.amount || 'N/A'}`
-        ).join('\n');
+        const top10 = boosts.slice(0, 10);
+        const addresses = top10.map(b => b.tokenAddress).filter(Boolean);
+        const nameMap = await dexService.resolveTokenNames(addresses);
+        const list = top10.map((b, i) => {
+          const addr = b.tokenAddress || '';
+          const info = nameMap[addr];
+          const label = info ? `*${info.name}* (${info.symbol})` : `\`${addr.slice(0, 8)}...\``;
+          return `${i + 1}. ${label} — ${b.amount || 'N/A'} boost`;
+        }).join('\n');
         await ctx.editMessageText(`⚡ *Latest Boosts*\n\n${list}`, {
           parse_mode: 'Markdown',
           reply_markup: dexscreenerMenuKeyboard(),
@@ -279,9 +285,15 @@ async function showTrending(ctx) {
       }
       return;
     }
-    const list = trending.slice(0, 10).map((t, i) =>
-      `${i + 1}. \`${(t.tokenAddress || '').slice(0, 12)}...\` — ${t.amount || 'N/A'} boost`
-    ).join('\n');
+    const top10 = trending.slice(0, 10);
+    const addresses = top10.map(t => t.tokenAddress).filter(Boolean);
+    const nameMap = await dexService.resolveTokenNames(addresses);
+    const list = top10.map((t, i) => {
+      const addr = t.tokenAddress || '';
+      const info = nameMap[addr];
+      const label = info ? `*${info.name}* (${info.symbol})` : `\`${addr.slice(0, 12)}...\``;
+      return `${i + 1}. ${label} — ${t.amount || 'N/A'} boost`;
+    }).join('\n');
     const text = `📈 *Trending Tokens (DexScreener)*\n\n${list}`;
     if (ctx.callbackQuery) {
       await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: dexscreenerMenuKeyboard() });

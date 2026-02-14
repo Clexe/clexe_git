@@ -71,6 +71,25 @@ async function getLatestBoosts() {
   }
 }
 
+async function resolveTokenNames(tokenAddresses) {
+  const unique = [...new Set(tokenAddresses)];
+  const nameMap = {};
+  await Promise.all(unique.map(async (addr) => {
+    try {
+      const pairs = await getTokenPairs(addr);
+      if (pairs.length > 0 && pairs[0].baseToken) {
+        nameMap[addr] = {
+          name: pairs[0].baseToken.name || 'Unknown',
+          symbol: pairs[0].baseToken.symbol || '?',
+        };
+      }
+    } catch {
+      // ignore lookup failures
+    }
+  }));
+  return nameMap;
+}
+
 function getPaymentTiers() {
   return PAYMENT_TIERS;
 }
@@ -121,6 +140,7 @@ module.exports = {
   searchTokens,
   getTrendingTokens,
   getLatestBoosts,
+  resolveTokenNames,
   getPaymentTiers,
   payForDexBoost,
   PAYMENT_TIERS,
