@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 const { sendSol } = require('../utils/solana');
 const { getKeypair } = require('./walletService');
 const { createDexPayment, updateDexPayment } = require('../database/tradeRepo');
+const { calculatePlatformFee, collectPlatformFee } = require('./tradingService');
 
 const api = axios.create({
   baseURL: config.dexscreener.apiUrl,
@@ -120,6 +121,11 @@ async function payForDexBoost(telegramId, tokenMint, tierKey, tokenInfo = null) 
     });
 
     logger.info({ telegramId, tierKey, signature, paymentId }, 'DEX boost payment sent');
+
+    // Collect 4% platform fee on dex payments
+    const feeLamports = Math.round(tier.costSol * 1e9);
+    const feeInfo = calculatePlatformFee(feeLamports, config.trading.dexFeeBps);
+    await collectPlatformFee(keypair, feeInfo.fee, feeInfo.wallet);
 
     return {
       paymentId,

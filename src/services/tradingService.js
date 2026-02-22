@@ -14,12 +14,12 @@ const logger = require('../utils/logger');
 const JUPITER_API = 'https://quote-api.jup.ag/v6';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
-function calculatePlatformFee(lamports) {
-  const feeBps = config.trading.platformFeeBps;
+function calculatePlatformFee(lamports, feeBps) {
+  const bps = feeBps != null ? feeBps : config.trading.tradingFeeBps;
   const feeWallet = config.trading.platformFeeWallet;
-  if (!feeBps || !feeWallet) return { fee: 0, wallet: null };
+  if (!bps || !feeWallet) return { fee: 0, wallet: null };
   return {
-    fee: Math.floor(lamports * feeBps / 10000),
+    fee: Math.floor(lamports * bps / 10000),
     wallet: feeWallet,
   };
 }
@@ -169,5 +169,7 @@ module.exports = {
   getSwapPreview,
   getQuote,
   executeSwap,
+  calculatePlatformFee,
+  collectPlatformFee,
   SOL_MINT,
 };
