@@ -91,6 +91,55 @@ async function resolveTokenNames(tokenAddresses) {
   return nameMap;
 }
 
+async function getTokenInfo(tokenAddress) {
+  const pairs = await getTokenPairs(tokenAddress);
+  if (!pairs.length) return null;
+  // Pick the highest-liquidity pair
+  const pair = pairs.reduce((best, p) =>
+    (p.liquidity?.usd || 0) > (best.liquidity?.usd || 0) ? p : best
+  , pairs[0]);
+  const base = pair.baseToken || {};
+  const pc = pair.priceChange || {};
+  return {
+    name: base.name || 'Unknown',
+    symbol: base.symbol || '?',
+    address: base.address || tokenAddress,
+    priceUsd: pair.priceUsd ? parseFloat(pair.priceUsd) : null,
+    priceNative: pair.priceNative ? parseFloat(pair.priceNative) : null,
+    marketCap: pair.marketCap || pair.fdv || null,
+    liquidity: pair.liquidity?.usd || null,
+    volume24h: pair.volume?.h24 || null,
+    priceChange: {
+      m5: pc.m5 != null ? pc.m5 : null,
+      h1: pc.h1 != null ? pc.h1 : null,
+      h6: pc.h6 != null ? pc.h6 : null,
+      h24: pc.h24 != null ? pc.h24 : null,
+    },
+    pairAddress: pair.pairAddress || null,
+    dexId: pair.dexId || null,
+  };
+}
+
+function formatTokenInfo(info) {
+  const price = info.priceUsd != null ? `$${info.priceUsd.toFixed(10).replace(/0+$/, '0')}` : 'N/A';
+  const mcap = info.marketCap ? `$${Number(info.marketCap).toLocaleString()}` : 'N/A';
+  const liq = info.liquidity ? `$${Number(info.liquidity).toLocaleString()}` : 'N/A';
+  const vol = info.volume24h ? `$${Number(info.volume24h).toLocaleString()}` : 'N/A';
+  const pc = info.priceChange;
+  const fmt = (v) => {
+    if (v == null) return '—';
+    const sign = v >= 0 ? '+' : '';
+    return `${sign}${v.toFixed(1)}%`;
+  };
+  return (
+    `*${info.name}* (${info.symbol})\n` +
+    `Price: ${price}\n` +
+    `MCap: ${mcap} | Liq: ${liq}\n` +
+    `Vol 24h: ${vol}\n` +
+    `5m: ${fmt(pc.m5)} | 1h: ${fmt(pc.h1)} | 6h: ${fmt(pc.h6)} | 24h: ${fmt(pc.h24)}`
+  );
+}
+
 function getPaymentTiers() {
   return PAYMENT_TIERS;
 }
@@ -147,6 +196,8 @@ module.exports = {
   getTrendingTokens,
   getLatestBoosts,
   resolveTokenNames,
+  getTokenInfo,
+  formatTokenInfo,
   getPaymentTiers,
   payForDexBoost,
   PAYMENT_TIERS,

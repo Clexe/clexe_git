@@ -22,6 +22,20 @@ function tradingMenuKeyboard() {
     .text('🔙 Back', 'menu:main');
 }
 
+function quickBuyKeyboard(tokenMint) {
+  return new InlineKeyboard()
+    .text('0.1 SOL', `qbuy:${tokenMint}:0.1`).text('0.5 SOL', `qbuy:${tokenMint}:0.5`).text('1 SOL', `qbuy:${tokenMint}:1`).row()
+    .text('2 SOL', `qbuy:${tokenMint}:2`).text('5 SOL', `qbuy:${tokenMint}:5`).text('Custom', `qbuy:${tokenMint}:custom`).row()
+    .text('🔙 Back', 'menu:trading');
+}
+
+function quickSellKeyboard(tokenMint) {
+  return new InlineKeyboard()
+    .text('25%', `qsell:${tokenMint}:25`).text('50%', `qsell:${tokenMint}:50`).text('75%', `qsell:${tokenMint}:75`).text('100%', `qsell:${tokenMint}:100`).row()
+    .text('Custom', `qsell:${tokenMint}:custom`).row()
+    .text('🔙 Back', 'menu:trading');
+}
+
 function launchMenuKeyboard() {
   return new InlineKeyboard()
     .text('🆕 New Token', 'launch:new').text('📋 My Launches', 'launch:list').row()
@@ -71,6 +85,8 @@ module.exports = {
   mainMenuKeyboard,
   walletMenuKeyboard,
   tradingMenuKeyboard,
+  quickBuyKeyboard,
+  quickSellKeyboard,
   launchMenuKeyboard,
   dexscreenerMenuKeyboard,
   boostTierKeyboard,
