@@ -3,6 +3,10 @@ const config = require('./config');
 const { migrate } = require('./database/migrate');
 const { createBot } = require('./bot');
 const { startSnipeWorker, stopSnipeWorker } = require('./jobs/snipeWorker');
+const { startLimitOrderWorker, stopLimitOrderWorker } = require('./jobs/limitOrderWorker');
+const { startDcaWorker, stopDcaWorker } = require('./jobs/dcaWorker');
+const { startWalletTrackerWorker, stopWalletTrackerWorker } = require('./jobs/walletTrackerWorker');
+const { startCopyTradeWorker, stopCopyTradeWorker } = require('./jobs/copyTradeWorker');
 
 async function main() {
   logger.info('Starting DEX Trading Bot...');
@@ -15,11 +19,19 @@ async function main() {
 
   // Start background workers
   startSnipeWorker(bot, 5000);
+  startLimitOrderWorker(bot, 10000);
+  startDcaWorker(bot, 15000);
+  startWalletTrackerWorker(bot, 30000);
+  startCopyTradeWorker(bot, 10000);
 
   // Graceful shutdown
   const shutdown = async (signal) => {
     logger.info({ signal }, 'Shutting down...');
     stopSnipeWorker();
+    stopLimitOrderWorker();
+    stopDcaWorker();
+    stopWalletTrackerWorker();
+    stopCopyTradeWorker();
     await bot.stop();
     const { closeDb } = require('./database/db');
     await closeDb();

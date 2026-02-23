@@ -5,6 +5,8 @@ function mainMenuKeyboard() {
     .text('💰 Wallet', 'menu:wallet').text('📊 Trading', 'menu:trading').row()
     .text('🚀 Launch Token', 'menu:launch').text('🔥 DexScreener', 'menu:dexscreener').row()
     .text('📈 Trending', 'menu:trending').text('🎯 Sniper', 'menu:sniper').row()
+    .text('👁 Tracker', 'menu:tracker').text('🪞 Copy Trade', 'menu:copy').row()
+    .text('🤝 Referral', 'menu:referral').row()
     .text('⚙️ Settings', 'menu:settings').text('❓ Help', 'menu:help');
 }
 
@@ -19,6 +21,8 @@ function tradingMenuKeyboard() {
   return new InlineKeyboard()
     .text('🟢 Buy Token', 'trade:buy').text('🔴 Sell Token', 'trade:sell').row()
     .text('📊 Price Check', 'trade:price').text('💹 Preview Swap', 'trade:preview').row()
+    .text('📦 Positions', 'trade:positions').text('📝 Limit Orders', 'trade:limit').row()
+    .text('📅 DCA', 'trade:dca').row()
     .text('🔙 Back', 'menu:main');
 }
 

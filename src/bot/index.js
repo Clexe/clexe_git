@@ -13,6 +13,12 @@ const dexscreenerHandler = require('./handlers/dexscreenerHandler');
 const sniperHandler = require('./handlers/sniperHandler');
 const settingsHandler = require('./handlers/settingsHandler');
 const adminHandler = require('./handlers/adminHandler');
+const positionHandler = require('./handlers/positionHandler');
+const limitOrderHandler = require('./handlers/limitOrderHandler');
+const referralHandler = require('./handlers/referralHandler');
+const walletTrackerHandler = require('./handlers/walletTrackerHandler');
+const copyTradeHandler = require('./handlers/copyTradeHandler');
+const dcaHandler = require('./handlers/dcaHandler');
 
 function createBot() {
   if (!config.bot.token) {
@@ -25,11 +31,18 @@ function createBot() {
   bot.use(rateLimiter());
 
   // Register all command/callback handlers
+  // Order matters: specific handlers before generic text handlers
   startHandler.register(bot);
   walletHandler.register(bot);
   launchHandler.register(bot);
   dexscreenerHandler.register(bot);
   sniperHandler.register(bot);
+  positionHandler.register(bot);
+  limitOrderHandler.register(bot);
+  referralHandler.register(bot);
+  walletTrackerHandler.register(bot);
+  copyTradeHandler.register(bot);
+  dcaHandler.register(bot);
   tradingHandler.register(bot);
   settingsHandler.register(bot);
   adminHandler.register(bot);
