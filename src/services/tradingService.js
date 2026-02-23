@@ -11,8 +11,15 @@ const { createTrade, updateTrade } = require('../database/tradeRepo');
 const config = require('../config');
 const logger = require('../utils/logger');
 
-const JUPITER_API = 'https://quote-api.jup.ag/v6';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+function jupiterHeaders() {
+  const headers = {};
+  if (config.jupiter.apiKey) {
+    headers['x-api-key'] = config.jupiter.apiKey;
+  }
+  return headers;
+}
 
 function calculatePlatformFee(lamports, feeBps) {
   const bps = feeBps != null ? feeBps : config.trading.tradingFeeBps;
@@ -39,7 +46,7 @@ async function collectPlatformFee(keypair, feeLamports, feeWallet) {
 
 async function getQuote(inputMint, outputMint, amount, slippageBps) {
   try {
-    const { data } = await axios.get(`${JUPITER_API}/quote`, {
+    const { data } = await axios.get(`${config.jupiter.apiUrl}/quote`, {
       params: {
         inputMint,
         outputMint,
@@ -47,6 +54,7 @@ async function getQuote(inputMint, outputMint, amount, slippageBps) {
         slippageBps: slippageBps || config.trading.maxSlippageBps,
         onlyDirectRoutes: false,
       },
+      headers: jupiterHeaders(),
       timeout: 10000,
     });
     return data;
@@ -79,13 +87,13 @@ async function executeSwap(telegramId, { inputMint, outputMint, amount, slippage
 
     const quote = await getQuote(inputMint, outputMint, swapAmount, slippageBps);
 
-    const { data: swapData } = await axios.post(`${JUPITER_API}/swap`, {
+    const { data: swapData } = await axios.post(`${config.jupiter.apiUrl}/swap`, {
       quoteResponse: quote,
       userPublicKey: keypair.publicKey.toBase58(),
       wrapAndUnwrapSol: true,
       dynamicComputeUnitLimit: true,
       prioritizationFeeLamports: config.trading.priorityFeeLamports,
-    }, { timeout: 15000 });
+    }, { headers: jupiterHeaders(), timeout: 15000 });
 
     const swapTransactionBuf = Buffer.from(swapData.swapTransaction, 'base64');
     const transaction = VersionedTransaction.deserialize(swapTransactionBuf);

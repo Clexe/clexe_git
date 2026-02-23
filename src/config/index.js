@@ -25,6 +25,10 @@ const config = {
     decimals: parseInt(process.env.DEFAULT_TOKEN_DECIMALS || '9', 10),
     initialSupply: parseInt(process.env.DEFAULT_INITIAL_SUPPLY || '1000000000', 10),
   },
+  jupiter: {
+    apiUrl: process.env.JUPITER_API_URL || 'https://api.jup.ag/swap/v1',
+    apiKey: process.env.JUPITER_API_KEY || '',
+  },
   trading: {
     maxSlippageBps: parseInt(process.env.MAX_SLIPPAGE_BPS || '300', 10),
     priorityFeeLamports: parseInt(process.env.PRIORITY_FEE_LAMPORTS || '100000', 10),
