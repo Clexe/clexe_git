@@ -50,28 +50,35 @@ function register(bot) {
     await ctx.answerCallbackQuery();
   });
 
+  const helpText =
+    `❓ *Help & Commands*\n\n` +
+    `*Trading*\n` +
+    `/buy \`<CA>\` \`<SOL>\` — Quick buy a token\n` +
+    `/sell \`<CA>\` \`<amount>\` — Quick sell a token\n` +
+    `/positions — View open positions & PnL\n` +
+    `/dca — Dollar-cost averaging\n` +
+    `/snipe — Snipe new token launches\n\n` +
+    `*Wallet*\n` +
+    `/wallet — Manage wallets\n` +
+    `/balance — Check wallet balance\n\n` +
+    `*Tools*\n` +
+    `/track \`<wallet>\` — Track a wallet\n` +
+    `/copy — Copy trade a wallet\n` +
+    `/dex \`<token>\` — DexScreener lookup\n` +
+    `/trending — View trending tokens\n\n` +
+    `*Other*\n` +
+    `/settings — Bot settings\n` +
+    `/referral — Your referral link & earnings\n` +
+    `/launch — Launch a new SPL token\n` +
+    `/help — This help menu\n\n` +
+    `💡 *Tip:* Paste any token address to see its info & buy buttons!`;
+
+  bot.command('help', async (ctx) => {
+    await ctx.reply(helpText, { parse_mode: 'Markdown', reply_markup: mainMenuKeyboard() });
+  });
+
   bot.callbackQuery('menu:help', async (ctx) => {
-    await ctx.editMessageText(
-      `❓ *Help & Commands*\n\n` +
-      `/start — Main menu\n` +
-      `/wallet — Wallet management\n` +
-      `/buy <token> <sol> — Quick buy\n` +
-      `/sell <token> <amount> — Quick sell\n` +
-      `/positions — View open positions & PnL\n` +
-      `/dca — Dollar-cost averaging\n` +
-      `/track <wallet> — Track a wallet\n` +
-      `/copy — Copy trading setup\n` +
-      `/referral — Your referral link & stats\n` +
-      `/launch — Launch a new token\n` +
-      `/dex <token> — DexScreener lookup\n` +
-      `/trending — View trending tokens\n` +
-      `/boost — Pay for DexScreener boost\n` +
-      `/snipe — Sniper settings\n` +
-      `/settings — Bot settings\n` +
-      `/balance — Check wallet balance\n\n` +
-      `Need help? Contact the bot admin.`,
-      { parse_mode: 'Markdown', reply_markup: mainMenuKeyboard() }
-    );
+    await ctx.editMessageText(helpText, { parse_mode: 'Markdown', reply_markup: mainMenuKeyboard() });
     await ctx.answerCallbackQuery();
   });
 }

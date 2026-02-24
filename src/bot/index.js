@@ -47,6 +47,26 @@ function createBot() {
   settingsHandler.register(bot);
   adminHandler.register(bot);
 
+  // Set bot command menu (side menu)
+  bot.api.setMyCommands([
+    { command: 'start', description: 'Start trading on Solana' },
+    { command: 'buy', description: 'Buy a token — /buy [CA] [SOL]' },
+    { command: 'sell', description: 'Sell a token — /sell [CA] [amount]' },
+    { command: 'positions', description: 'View your open positions & PnL' },
+    { command: 'wallet', description: 'Manage your wallets' },
+    { command: 'settings', description: 'Configure your bot settings' },
+    { command: 'snipe', description: 'Snipe new token launches' },
+    { command: 'dca', description: 'Dollar-cost average into a token' },
+    { command: 'copy', description: 'Copy trade a wallet' },
+    { command: 'track', description: 'Track a wallet — /track [address]' },
+    { command: 'referral', description: 'Your referral link & earnings' },
+    { command: 'dex', description: 'DexScreener lookup — /dex [token]' },
+    { command: 'trending', description: 'View trending tokens' },
+    { command: 'launch', description: 'Launch a new SPL token' },
+    { command: 'balance', description: 'Check wallet balance' },
+    { command: 'help', description: 'FAQ & commands' },
+  ]).catch(err => logger.error({ err: err.message }, 'Failed to set bot commands'));
+
   // Error handler
   bot.catch((err) => {
     const ctx = err.ctx;
