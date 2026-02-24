@@ -1,10 +1,44 @@
-const { tradingMenuKeyboard, quickBuyKeyboard, quickSellKeyboard, mainMenuKeyboard } = require('../menus/mainMenu');
+const { tradingMenuKeyboard, mainMenuKeyboard } = require('../menus/mainMenu');
 const tradingService = require('../../services/tradingService');
 const dexService = require('../../services/dexscreenerService');
 const walletService = require('../../services/walletService');
-const { requireWallet } = require('../middleware/auth');
+const { getUserSettings } = require('../../database/userRepo');
+const { withDefaults } = require('./settingsHandler');
+const { InlineKeyboard } = require('grammy');
 
 const sessions = new Map();
+
+// Build quick-buy keyboard from user's settings
+function userBuyKeyboard(tokenMint, settings) {
+  const s = withDefaults(settings);
+  const amounts = s.buyButtons || [0.1, 0.5, 1, 2, 5];
+  const kb = new InlineKeyboard();
+  // Row 1: first 3 buttons
+  amounts.slice(0, 3).forEach(a => kb.text(`${a} SOL`, `qbuy:${tokenMint}:${a}`));
+  kb.row();
+  // Row 2: remaining + custom
+  amounts.slice(3).forEach(a => kb.text(`${a} SOL`, `qbuy:${tokenMint}:${a}`));
+  kb.text('Custom', `qbuy:${tokenMint}:custom`).row();
+  kb.text('🔙 Back', 'menu:trading');
+  return kb;
+}
+
+// Build quick-sell keyboard from user's settings
+function userSellKeyboard(tokenMint, settings) {
+  const s = withDefaults(settings);
+  const pcts = s.sellButtons || [25, 50, 75, 100];
+  const kb = new InlineKeyboard();
+  pcts.forEach(p => kb.text(`${p}%`, `qsell:${tokenMint}:${p}`));
+  kb.row();
+  kb.text('Custom', `qsell:${tokenMint}:custom`).row();
+  kb.text('🔙 Back', 'menu:trading');
+  return kb;
+}
+
+// Check if text looks like a Solana address (base58, 32-44 chars)
+function isSolanaAddress(text) {
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(text);
+}
 
 function register(bot) {
   bot.callbackQuery('menu:trading', async (ctx) => {
@@ -15,7 +49,7 @@ function register(bot) {
     await ctx.answerCallbackQuery();
   });
 
-  // Buy flow — ask for mint, then show token info + quick-buy buttons
+  // Buy flow
   bot.callbackQuery('trade:buy', async (ctx) => {
     sessions.set(ctx.from.id, { action: 'buy_token', step: 'token' });
     await ctx.editMessageText(
@@ -25,7 +59,7 @@ function register(bot) {
     await ctx.answerCallbackQuery();
   });
 
-  // Sell flow — ask for mint, then show token info + quick-sell buttons
+  // Sell flow
   bot.callbackQuery('trade:sell', async (ctx) => {
     sessions.set(ctx.from.id, { action: 'sell_token', step: 'token' });
     await ctx.editMessageText(
@@ -64,17 +98,7 @@ function register(bot) {
 
     try {
       const result = await tradingService.buyToken(ctx.from.id, tokenMint, solAmount);
-      let msg = `✅ *Buy Executed!*\n\n` +
-        `Spent: *${solAmount} SOL*\n` +
-        `TX: [Solscan](https://solscan.io/tx/${result.signature})`;
-      try {
-        const info = await dexService.getTokenInfo(tokenMint);
-        if (info) msg = `✅ *Buy Executed — ${info.name} (${info.symbol})*\n\n` +
-          `Spent: *${solAmount} SOL*\n` +
-          `Price: $${info.priceUsd?.toFixed(10).replace(/0+$/, '0') || 'N/A'}\n` +
-          `MCap: $${info.marketCap ? Number(info.marketCap).toLocaleString() : 'N/A'}\n` +
-          `TX: [Solscan](https://solscan.io/tx/${result.signature})`;
-      } catch { /* ignore info lookup failure */ }
+      const msg = await buildBuyConfirmation(tokenMint, solAmount, result.signature);
       await ctx.editMessageText(msg, {
         parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
       });
@@ -113,23 +137,41 @@ function register(bot) {
       await ctx.editMessageText(`⏳ Selling ${pct}% (${sellAmount} tokens)...`);
 
       const result = await tradingService.sellToken(ctx.from.id, tokenMint, sellAmount);
-      let msg = `✅ *Sell Executed!*\n\n` +
-        `Sold: *${pct}%*\n` +
-        `TX: [Solscan](https://solscan.io/tx/${result.signature})`;
-      try {
-        const info = await dexService.getTokenInfo(tokenMint);
-        if (info) msg = `✅ *Sell Executed — ${info.name} (${info.symbol})*\n\n` +
-          `Sold: *${pct}%* (${sellAmount} tokens)\n` +
-          `Price: $${info.priceUsd?.toFixed(10).replace(/0+$/, '0') || 'N/A'}\n` +
-          `MCap: $${info.marketCap ? Number(info.marketCap).toLocaleString() : 'N/A'}\n` +
-          `TX: [Solscan](https://solscan.io/tx/${result.signature})`;
-      } catch { /* ignore */ }
+      const msg = await buildSellConfirmation(tokenMint, pct, sellAmount, result.signature);
       await ctx.editMessageText(msg, {
         parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
       });
     } catch (err) {
       await ctx.editMessageText(`❌ Sell failed: ${err.message}`, { reply_markup: tradingMenuKeyboard() });
     }
+  });
+
+  // Sell from position view: psell:<mint>
+  bot.callbackQuery(/^psell:/, async (ctx) => {
+    const tokenMint = ctx.callbackQuery.data.split(':')[1];
+    const settings = await getUserSettings(ctx.from.id);
+    sessions.set(ctx.from.id, { action: 'sell_token', step: 'amount', tokenMint });
+    try {
+      const info = await dexService.getTokenInfo(tokenMint);
+      const balance = await walletService.getTokenBalance(ctx.from.id, tokenMint);
+      if (info) {
+        const infoText = dexService.formatTokenInfo(info);
+        const balText = balance ? `\nYour balance: *${balance.toLocaleString()}* tokens` : '';
+        await ctx.editMessageText(
+          `🔴 *Sell Token*\n\n${infoText}${balText}\n\nSelect % to sell or type custom amount:`,
+          { parse_mode: 'Markdown', reply_markup: userSellKeyboard(tokenMint, settings) }
+        );
+      } else {
+        await ctx.editMessageText('Select % to sell or type custom amount:', {
+          reply_markup: userSellKeyboard(tokenMint, settings),
+        });
+      }
+    } catch {
+      await ctx.editMessageText('Select % to sell or type custom amount:', {
+        reply_markup: userSellKeyboard(tokenMint, settings),
+      });
+    }
+    await ctx.answerCallbackQuery();
   });
 
   // Quick buy command: /buy <mint> <sol_amount>
@@ -150,18 +192,7 @@ function register(bot) {
 
     try {
       const result = await tradingService.buyToken(ctx.from.id, tokenMint, solAmount);
-      let msg = `✅ *Buy Order Executed!*\n\n` +
-        `Token: \`${tokenMint}\`\n` +
-        `Spent: ${solAmount} SOL\n` +
-        `TX: [View on Solscan](https://solscan.io/tx/${result.signature})`;
-      try {
-        const info = await dexService.getTokenInfo(tokenMint);
-        if (info) msg = `✅ *Bought ${info.name} (${info.symbol})*\n\n` +
-          `Spent: *${solAmount} SOL*\n` +
-          `Price: $${info.priceUsd?.toFixed(10).replace(/0+$/, '0') || 'N/A'}\n` +
-          `MCap: $${info.marketCap ? Number(info.marketCap).toLocaleString() : 'N/A'}\n` +
-          `TX: [Solscan](https://solscan.io/tx/${result.signature})`;
-      } catch { /* ignore */ }
+      const msg = await buildBuyConfirmation(tokenMint, solAmount, result.signature);
       await ctx.reply(msg, { parse_mode: 'Markdown', link_preview_is_disabled: true });
     } catch (err) {
       await ctx.reply(`❌ Buy failed: ${err.message}`);
@@ -186,51 +217,79 @@ function register(bot) {
 
     try {
       const result = await tradingService.sellToken(ctx.from.id, tokenMint, Math.round(amount));
-      let msg = `✅ *Sell Order Executed!*\n\n` +
-        `Token: \`${tokenMint}\`\n` +
-        `TX: [View on Solscan](https://solscan.io/tx/${result.signature})`;
-      try {
-        const info = await dexService.getTokenInfo(tokenMint);
-        if (info) msg = `✅ *Sold ${info.name} (${info.symbol})*\n\n` +
-          `Price: $${info.priceUsd?.toFixed(10).replace(/0+$/, '0') || 'N/A'}\n` +
-          `MCap: $${info.marketCap ? Number(info.marketCap).toLocaleString() : 'N/A'}\n` +
-          `TX: [Solscan](https://solscan.io/tx/${result.signature})`;
-      } catch { /* ignore */ }
+      const msg = await buildSellConfirmation(tokenMint, null, Math.round(amount), result.signature);
       await ctx.reply(msg, { parse_mode: 'Markdown', link_preview_is_disabled: true });
     } catch (err) {
       await ctx.reply(`❌ Sell failed: ${err.message}`);
     }
   });
 
-  // Handle trading session text inputs
+  // Handle trading session text inputs + auto-buy on paste
   bot.on('message:text', async (ctx, next) => {
     const session = sessions.get(ctx.from.id);
+    const text = ctx.message.text.trim();
+
+    // Auto-buy: if user pastes a token address with no active session and autoBuy is ON
+    if (!session && isSolanaAddress(text)) {
+      const settings = withDefaults(await getUserSettings(ctx.from.id));
+      if (settings.autoBuy) {
+        // Auto-buy with first buy button amount
+        const autoAmount = settings.buyButtons?.[0] || 0.1;
+        await ctx.reply(`⚡ *Auto Buy* — ${autoAmount} SOL\n\nFetching token info...`, { parse_mode: 'Markdown' });
+        try {
+          const info = await dexService.getTokenInfo(text);
+          if (info) {
+            const infoText = dexService.formatTokenInfo(info);
+            await ctx.reply(infoText, { parse_mode: 'Markdown' });
+          }
+          const result = await tradingService.buyToken(ctx.from.id, text, autoAmount);
+          const msg = await buildBuyConfirmation(text, autoAmount, result.signature);
+          await ctx.reply(msg, { parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard() });
+        } catch (err) {
+          await ctx.reply(`❌ Auto-buy failed: ${err.message}`, { reply_markup: tradingMenuKeyboard() });
+        }
+        return;
+      }
+      // Not autoBuy, but still show token info with buy buttons
+      try {
+        const info = await dexService.getTokenInfo(text);
+        if (info) {
+          const infoText = dexService.formatTokenInfo(info);
+          await ctx.reply(
+            `📊 *Token Detected*\n\n${infoText}\n\n\`${text}\``,
+            { parse_mode: 'Markdown', reply_markup: userBuyKeyboard(text, settings) }
+          );
+          return;
+        }
+      } catch { /* not a known token, ignore */ }
+    }
+
     if (!session) return next();
 
-    const text = ctx.message.text.trim();
     if (text.toLowerCase() === 'cancel') {
       sessions.delete(ctx.from.id);
       await ctx.reply('❌ Cancelled.', { reply_markup: tradingMenuKeyboard() });
       return;
     }
 
+    const settings = withDefaults(await getUserSettings(ctx.from.id));
+
     if (session.action === 'buy_token') {
       if (session.step === 'token') {
         session.tokenMint = text;
         session.step = 'amount';
-        // Fetch and display token info with quick-buy buttons
         try {
           const info = await dexService.getTokenInfo(text);
           if (info) {
             const infoText = dexService.formatTokenInfo(info);
             await ctx.reply(
               `🟢 *Buy Token*\n\n${infoText}\n\nSelect amount or type custom SOL amount:`,
-              { parse_mode: 'Markdown', reply_markup: quickBuyKeyboard(text) }
+              { parse_mode: 'Markdown', reply_markup: userBuyKeyboard(text, settings) }
             );
             return;
           }
-        } catch { /* ignore, fall through to plain prompt */ }
-        await ctx.reply('How much SOL do you want to spend?', { reply_markup: quickBuyKeyboard(text) });
+        } catch { /* ignore */ }
+        await ctx.reply('How much SOL do you want to spend?', { reply_markup: userBuyKeyboard(text, settings) });
         return;
       }
       if (session.step === 'amount') {
@@ -243,15 +302,7 @@ function register(bot) {
         await ctx.reply(`⏳ Buying ${solAmount} SOL worth...`);
         try {
           const result = await tradingService.buyToken(ctx.from.id, session.tokenMint, solAmount);
-          let msg = `✅ *Buy Executed!*\n\nTX: [Solscan](https://solscan.io/tx/${result.signature})`;
-          try {
-            const info = await dexService.getTokenInfo(session.tokenMint);
-            if (info) msg = `✅ *Bought ${info.name} (${info.symbol})*\n\n` +
-              `Spent: *${solAmount} SOL*\n` +
-              `Price: $${info.priceUsd?.toFixed(10).replace(/0+$/, '0') || 'N/A'}\n` +
-              `MCap: $${info.marketCap ? Number(info.marketCap).toLocaleString() : 'N/A'}\n` +
-              `TX: [Solscan](https://solscan.io/tx/${result.signature})`;
-          } catch { /* ignore */ }
+          const msg = await buildBuyConfirmation(session.tokenMint, solAmount, result.signature);
           await ctx.reply(msg, {
             parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
           });
@@ -266,7 +317,6 @@ function register(bot) {
       if (session.step === 'token') {
         session.tokenMint = text;
         session.step = 'amount';
-        // Fetch and display token info with quick-sell buttons
         try {
           const info = await dexService.getTokenInfo(text);
           const balance = await walletService.getTokenBalance(ctx.from.id, text);
@@ -275,12 +325,12 @@ function register(bot) {
             const balText = balance ? `\nYour balance: *${balance.toLocaleString()}* tokens` : '';
             await ctx.reply(
               `🔴 *Sell Token*\n\n${infoText}${balText}\n\nSelect % to sell or type custom amount:`,
-              { parse_mode: 'Markdown', reply_markup: quickSellKeyboard(text) }
+              { parse_mode: 'Markdown', reply_markup: userSellKeyboard(text, settings) }
             );
             return;
           }
         } catch { /* ignore */ }
-        await ctx.reply('How many tokens to sell? (raw amount)', { reply_markup: quickSellKeyboard(text) });
+        await ctx.reply('How many tokens to sell? (raw amount)', { reply_markup: userSellKeyboard(text, settings) });
         return;
       }
       if (session.step === 'amount') {
@@ -293,14 +343,7 @@ function register(bot) {
         await ctx.reply('⏳ Selling...');
         try {
           const result = await tradingService.sellToken(ctx.from.id, session.tokenMint, Math.round(amount));
-          let msg = `✅ *Sell Executed!*\n\nTX: [Solscan](https://solscan.io/tx/${result.signature})`;
-          try {
-            const info = await dexService.getTokenInfo(session.tokenMint);
-            if (info) msg = `✅ *Sold ${info.name} (${info.symbol})*\n\n` +
-              `Price: $${info.priceUsd?.toFixed(10).replace(/0+$/, '0') || 'N/A'}\n` +
-              `MCap: $${info.marketCap ? Number(info.marketCap).toLocaleString() : 'N/A'}\n` +
-              `TX: [Solscan](https://solscan.io/tx/${result.signature})`;
-          } catch { /* ignore */ }
+          const msg = await buildSellConfirmation(session.tokenMint, null, Math.round(amount), result.signature);
           await ctx.reply(msg, {
             parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
           });
@@ -319,10 +362,9 @@ function register(bot) {
           const infoText = dexService.formatTokenInfo(info);
           await ctx.reply(
             `📊 *Token Info*\n\n${infoText}\n\n\`${text}\``,
-            { parse_mode: 'Markdown', reply_markup: quickBuyKeyboard(text) }
+            { parse_mode: 'Markdown', reply_markup: userBuyKeyboard(text, settings) }
           );
         } else {
-          // Fallback to Jupiter quote
           const preview = await tradingService.getSwapPreview(
             tradingService.SOL_MINT, text, 1e9, 100
           );
@@ -342,6 +384,53 @@ function register(bot) {
 
     return next();
   });
+}
+
+// Helper: build buy confirmation message with token info
+async function buildBuyConfirmation(tokenMint, solAmount, signature) {
+  let msg = `✅ *Buy Executed!*\n\n` +
+    `Spent: *${solAmount} SOL*\n` +
+    `TX: [Solscan](https://solscan.io/tx/${signature})`;
+  try {
+    const info = await dexService.getTokenInfo(tokenMint);
+    if (info) {
+      const price = info.priceUsd?.toFixed(10).replace(/0+$/, '0') || 'N/A';
+      const mcap = info.marketCap ? `$${Number(info.marketCap).toLocaleString()}` : 'N/A';
+      const pc = info.priceChange;
+      const fmt = (v) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}%` : '—';
+      msg = `✅ *Bought ${info.name} (${info.symbol})*\n\n` +
+        `Spent: *${solAmount} SOL*\n` +
+        `Price: $${price}\n` +
+        `MCap: ${mcap}\n` +
+        `5m: ${fmt(pc.m5)} | 1h: ${fmt(pc.h1)} | 24h: ${fmt(pc.h24)}\n` +
+        `TX: [Solscan](https://solscan.io/tx/${signature})`;
+    }
+  } catch { /* ignore */ }
+  return msg;
+}
+
+// Helper: build sell confirmation message with token info
+async function buildSellConfirmation(tokenMint, pct, amount, signature) {
+  const soldLabel = pct ? `*${pct}%* (${amount} tokens)` : `*${amount}* tokens`;
+  let msg = `✅ *Sell Executed!*\n\n` +
+    `Sold: ${soldLabel}\n` +
+    `TX: [Solscan](https://solscan.io/tx/${signature})`;
+  try {
+    const info = await dexService.getTokenInfo(tokenMint);
+    if (info) {
+      const price = info.priceUsd?.toFixed(10).replace(/0+$/, '0') || 'N/A';
+      const mcap = info.marketCap ? `$${Number(info.marketCap).toLocaleString()}` : 'N/A';
+      const pc = info.priceChange;
+      const fmt = (v) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}%` : '—';
+      msg = `✅ *Sold ${info.name} (${info.symbol})*\n\n` +
+        `Sold: ${soldLabel}\n` +
+        `Price: $${price}\n` +
+        `MCap: ${mcap}\n` +
+        `5m: ${fmt(pc.m5)} | 1h: ${fmt(pc.h1)} | 24h: ${fmt(pc.h24)}\n` +
+        `TX: [Solscan](https://solscan.io/tx/${signature})`;
+    }
+  } catch { /* ignore */ }
+  return msg;
 }
 
 module.exports = { register, sessions };

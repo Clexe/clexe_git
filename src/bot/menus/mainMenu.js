@@ -74,10 +74,48 @@ function sniperMenuKeyboard() {
     .text('🔙 Back', 'menu:main');
 }
 
-function settingsMenuKeyboard() {
+function settingsMenuKeyboard(settings = {}) {
+  const onOff = (val) => val ? '✅' : '❌';
+  const speed = settings.txSpeed || 'turbo';
   return new InlineKeyboard()
-    .text('📊 Slippage', 'settings:slippage').text('⛽ Priority Fee', 'settings:fee').row()
+    // TX Speed row
+    .text(speed === 'fast' ? '[ Fast ]' : 'Fast', 'settings:speed:fast')
+    .text(speed === 'turbo' ? '[ Turbo ]' : 'Turbo', 'settings:speed:turbo')
+    .text(speed === 'custom' ? '[ Custom ]' : 'Custom', 'settings:speed:custom').row()
+    // Sub-menus
+    .text('Buy Settings', 'settings:buy').text('Sell Settings', 'settings:sell').row()
+    // Toggles
+    .text(`${onOff(settings.mevProtectBuy)} MEV Protect (Buy)`, 'settings:toggle:mevProtectBuy')
+    .text(`${onOff(settings.mevProtectSell)} MEV Protect (Sell)`, 'settings:toggle:mevProtectSell').row()
+    .text(`${onOff(settings.autoBuy)} Auto Buy`, 'settings:toggle:autoBuy')
+    .text(`${onOff(settings.autoSell)} Auto Sell`, 'settings:toggle:autoSell').row()
+    .text(`${onOff(settings.confirmTrades !== false)} Confirm Trades`, 'settings:toggle:confirmTrades').row()
+    .text(`${onOff(settings.pnlCards !== false)} PnL Cards`, 'settings:toggle:pnlCards')
+    .text(`${onOff(settings.chartPreviews)} Chart Previews`, 'settings:toggle:chartPreviews').row()
     .text('🔙 Back', 'menu:main');
+}
+
+function buySettingsKeyboard(settings = {}) {
+  const s = settings.buySlippageBps || 300;
+  const amounts = settings.buyButtons || [0.1, 0.5, 1, 2, 5];
+  return new InlineKeyboard()
+    .text(`Slippage: ${s / 100}%`, 'settings:buySlippage').row()
+    .text(amounts[0] + ' SOL', 'settings:buyBtn:0').text(amounts[1] + ' SOL', 'settings:buyBtn:1')
+    .text(amounts[2] + ' SOL', 'settings:buyBtn:2').row()
+    .text(amounts[3] + ' SOL', 'settings:buyBtn:3').text(amounts[4] + ' SOL', 'settings:buyBtn:4').row()
+    .text('Edit Buy Buttons', 'settings:editBuyBtns').row()
+    .text('🔙 Back', 'menu:settings');
+}
+
+function sellSettingsKeyboard(settings = {}) {
+  const s = settings.sellSlippageBps || 300;
+  const pcts = settings.sellButtons || [25, 50, 75, 100];
+  return new InlineKeyboard()
+    .text(`Slippage: ${s / 100}%`, 'settings:sellSlippage').row()
+    .text(pcts[0] + '%', 'settings:sellBtn:0').text(pcts[1] + '%', 'settings:sellBtn:1')
+    .text(pcts[2] + '%', 'settings:sellBtn:2').text(pcts[3] + '%', 'settings:sellBtn:3').row()
+    .text('Edit Sell Buttons', 'settings:editSellBtns').row()
+    .text('🔙 Back', 'menu:settings');
 }
 
 function confirmKeyboard(action) {
@@ -96,5 +134,7 @@ module.exports = {
   boostTierKeyboard,
   sniperMenuKeyboard,
   settingsMenuKeyboard,
+  buySettingsKeyboard,
+  sellSettingsKeyboard,
   confirmKeyboard,
 };
