@@ -60,6 +60,25 @@ async function getSplTokenBalance(walletPubkey, mintAddress) {
   return accounts.value[0].account.data.parsed.info.tokenAmount.uiAmount;
 }
 
+async function getAllSplTokenBalances(walletPubkey) {
+  const conn = getConnection();
+  const { TOKEN_PROGRAM_ID } = require('@solana/spl-token');
+  const accounts = await conn.getParsedTokenAccountsByOwner(
+    new PublicKey(walletPubkey),
+    { programId: TOKEN_PROGRAM_ID }
+  );
+  return accounts.value
+    .map(a => {
+      const info = a.account.data.parsed.info;
+      return {
+        mint: info.mint,
+        balance: info.tokenAmount.uiAmount,
+        decimals: info.tokenAmount.decimals,
+      };
+    })
+    .filter(t => t.balance > 0);
+}
+
 async function sendSol(fromKeypair, toPublicKey, solAmount) {
   const conn = getConnection();
   const tx = new Transaction();
@@ -120,6 +139,7 @@ module.exports = {
   keypairToBase58,
   getBalance,
   getSplTokenBalance,
+  getAllSplTokenBalances,
   sendSol,
   sendTransactionWithRetry,
   LAMPORTS_PER_SOL,

@@ -40,6 +40,33 @@ function isSolanaAddress(text) {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(text);
 }
 
+// Build a sell holdings keyboard showing all user's tokens
+async function buildHoldingsMessage(telegramId) {
+  const holdings = await walletService.getAllTokenBalances(telegramId);
+  if (!holdings || holdings.length === 0) {
+    return { text: '🔴 *Sell Token*\n\nYou have no token holdings.', kb: tradingMenuKeyboard() };
+  }
+
+  // Resolve names from DexScreener (parallel, best effort)
+  const nameMap = await dexService.resolveTokenNames(holdings.map(h => h.mint));
+
+  const kb = new InlineKeyboard();
+  const lines = [];
+  for (const h of holdings.slice(0, 10)) {
+    const info = nameMap[h.mint];
+    const name = info?.name || 'Unknown';
+    const symbol = info?.symbol || h.mint.slice(0, 6);
+    const balStr = h.balance.toLocaleString(undefined, { maximumFractionDigits: 4 });
+    lines.push(`*${name}* (${symbol}) — ${balStr}`);
+    kb.text(`Sell ${symbol}`, `sell_pick:${h.mint}`).row();
+  }
+  kb.text('Enter address manually', 'sell_manual').row();
+  kb.text('🔙 Back', 'menu:trading');
+
+  const text = `🔴 *Sell Token*\n\nYour holdings:\n\n${lines.join('\n')}`;
+  return { text, kb };
+}
+
 function register(bot) {
   bot.callbackQuery('menu:trading', async (ctx) => {
     await ctx.editMessageText('📊 *Trading*\n\nBuy and sell tokens via Jupiter aggregator.', {
@@ -59,13 +86,49 @@ function register(bot) {
     await ctx.answerCallbackQuery();
   });
 
-  // Sell flow
+  // Sell flow — show holdings
   bot.callbackQuery('trade:sell', async (ctx) => {
+    try {
+      const { text, kb } = await buildHoldingsMessage(ctx.from.id);
+      await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: kb });
+    } catch (err) {
+      await ctx.editMessageText(`❌ ${err.message}`, { reply_markup: tradingMenuKeyboard() });
+    }
+    await ctx.answerCallbackQuery();
+  });
+
+  // Pick a token from holdings to sell
+  bot.callbackQuery(/^sell_pick:/, async (ctx) => {
+    const tokenMint = ctx.callbackQuery.data.split(':')[1];
+    sessions.set(ctx.from.id, { action: 'sell_token', step: 'amount', tokenMint });
+    const settings = withDefaults(await getUserSettings(ctx.from.id));
+    try {
+      const info = await dexService.getTokenInfo(tokenMint);
+      const balance = await walletService.getTokenBalance(ctx.from.id, tokenMint);
+      if (info) {
+        const infoText = dexService.formatTokenInfo(info);
+        const balText = balance ? `\nYour balance: *${balance.toLocaleString()}* tokens` : '';
+        await ctx.editMessageText(
+          `🔴 *Sell Token*\n\n${infoText}${balText}\n\nSelect % to sell or type custom amount:`,
+          { parse_mode: 'Markdown', reply_markup: userSellKeyboard(tokenMint, settings) }
+        );
+      } else {
+        await ctx.editMessageText('Select % to sell or type custom amount:', {
+          reply_markup: userSellKeyboard(tokenMint, settings),
+        });
+      }
+    } catch {
+      await ctx.editMessageText('Select % to sell or type custom amount:', {
+        reply_markup: userSellKeyboard(tokenMint, settings),
+      });
+    }
+    await ctx.answerCallbackQuery();
+  });
+
+  // Manual sell address entry
+  bot.callbackQuery('sell_manual', async (ctx) => {
     sessions.set(ctx.from.id, { action: 'sell_token', step: 'token' });
-    await ctx.editMessageText(
-      '🔴 *Sell Token*\n\nSend the token mint address:',
-      { parse_mode: 'Markdown' }
-    );
+    await ctx.editMessageText('🔴 *Sell Token*\n\nSend the token mint address:', { parse_mode: 'Markdown' });
     await ctx.answerCallbackQuery();
   });
 
@@ -267,9 +330,13 @@ function register(bot) {
       return;
     }
 
-    // No args — start step-by-step flow
-    sessions.set(ctx.from.id, { action: 'sell_token', step: 'token' });
-    await ctx.reply('🔴 *Sell Token*\n\nSend the token mint address:', { parse_mode: 'Markdown' });
+    // No args — show holdings
+    try {
+      const { text, kb } = await buildHoldingsMessage(ctx.from.id);
+      await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: kb });
+    } catch (err) {
+      await ctx.reply(`❌ ${err.message}`, { reply_markup: tradingMenuKeyboard() });
+    }
   });
 
   // Handle trading session text inputs + auto-buy on paste

@@ -1,7 +1,7 @@
 const { Keypair } = require('@solana/web3.js');
 const bs58 = require('bs58');
 const { encrypt, decrypt } = require('../utils/crypto');
-const { getBalance, getSplTokenBalance } = require('../utils/solana');
+const { getBalance, getSplTokenBalance, getAllSplTokenBalances } = require('../utils/solana');
 const { findUser, upsertUser } = require('../database/userRepo');
 const logger = require('../utils/logger');
 
@@ -82,6 +82,12 @@ async function getTokenBalance(telegramId, mintAddress) {
   return getSplTokenBalance(pubkey, mintAddress);
 }
 
+async function getAllTokenBalances(telegramId) {
+  const pubkey = await getPublicKey(telegramId);
+  if (!pubkey) throw new Error('No wallet found.');
+  return getAllSplTokenBalances(pubkey);
+}
+
 async function exportPrivateKey(telegramId) {
   const user = await findUser(telegramId);
   if (!user || !user.wallet_encrypted_secret) {
@@ -97,5 +103,6 @@ module.exports = {
   getPublicKey,
   getWalletBalance,
   getTokenBalance,
+  getAllTokenBalances,
   exportPrivateKey,
 };
