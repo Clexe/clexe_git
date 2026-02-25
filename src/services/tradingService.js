@@ -7,7 +7,9 @@ const {
 } = require('@solana/web3.js');
 const { getConnection, sendTransactionWithRetry, sendSol } = require('../utils/solana');
 const { getKeypair } = require('./walletService');
-const { createTrade, updateTrade } = require('../database/tradeRepo');
+const { createTrade, updateTrade, createPosition, getOpenPositionByMint, updatePosition, closePosition, addReferralEarnings } = require('../database/tradeRepo');
+const { findUser } = require('../database/userRepo');
+const dexService = require('./dexscreenerService');
 const config = require('../config');
 const logger = require('../utils/logger');
 
@@ -115,14 +117,45 @@ async function executeSwap(telegramId, { inputMint, outputMint, amount, slippage
 
     logger.info({ telegramId, tradeId, signature, tradeType }, 'Trade executed');
 
-    // Collect platform fee
+    // Collect platform fee + referral sharing
+    let platformFee = 0;
     if (tradeType === 'buy') {
-      // Fee was already deducted from input; transfer it to platform wallet
+      platformFee = feeInfo.fee;
       await collectPlatformFee(keypair, feeInfo.fee, feeInfo.wallet);
     } else {
-      // For sells, take fee from SOL output
       const sellFeeInfo = calculatePlatformFee(Number(quote.outAmount));
+      platformFee = sellFeeInfo.fee;
       await collectPlatformFee(keypair, sellFeeInfo.fee, sellFeeInfo.wallet);
+    }
+
+    // Referral fee sharing: 30% of platform fee to referrer
+    if (platformFee > 0) {
+      try {
+        const user = await findUser(telegramId);
+        if (user?.referred_by) {
+          const referralShare = Math.floor(platformFee * 0.3);
+          if (referralShare > 0) {
+            const referralSol = referralShare / 1e9;
+            await addReferralEarnings(user.referred_by, referralSol);
+            await sendSol(keypair, (await findUser(user.referred_by))?.wallet_public_key, referralSol).catch(() => {});
+            logger.info({ referrer: user.referred_by, share: referralSol }, 'Referral fee distributed');
+          }
+        }
+      } catch (err) {
+        logger.warn({ err: err.message }, 'Referral fee distribution failed');
+      }
+    }
+
+    // Position tracking
+    const tokenMint = tradeType === 'buy' ? outputMint : inputMint;
+    try {
+      if (tradeType === 'buy') {
+        await trackBuyPosition(telegramId, tokenMint, amount, quote.outAmount, tradeId);
+      } else {
+        await trackSellPosition(telegramId, tokenMint, Number(quote.outAmount), amount);
+      }
+    } catch (err) {
+      logger.warn({ err: err.message, tradeId }, 'Position tracking failed');
     }
 
     return {
@@ -169,6 +202,91 @@ async function getSwapPreview(inputMint, outputMint, amount, slippageBps) {
     routePlan: (quote.routePlan || []).map((r) => r.swapInfo?.label || 'Unknown').join(' → '),
     minimumReceived: quote.otherAmountThreshold,
   };
+}
+
+// Track a buy by creating or updating an open position
+async function trackBuyPosition(telegramId, tokenMint, lamportsSpent, tokensReceived, tradeId) {
+  const solSpent = lamportsSpent / 1e9;
+  const tokens = Number(tokensReceived);
+
+  // Fetch current price from DexScreener
+  let priceUsd = null;
+  let priceSol = null;
+  let name = null;
+  let symbol = null;
+  try {
+    const info = await dexService.getTokenInfo(tokenMint);
+    if (info) {
+      priceUsd = info.priceUsd;
+      priceSol = info.priceNative;
+      name = info.name;
+      symbol = info.symbol;
+    }
+  } catch { /* ignore */ }
+
+  // Check if there's an existing open position for this token
+  const existing = await getOpenPositionByMint(telegramId, tokenMint);
+  if (existing) {
+    // Average into existing position
+    const oldTokens = Number(existing.amount_tokens) || 0;
+    const oldSolSpent = Number(existing.amount_sol_spent) || 0;
+    const newTokens = oldTokens + tokens;
+    const newSolSpent = oldSolSpent + solSpent;
+    // Weighted average entry price
+    const newEntryUsd = priceUsd
+      ? ((Number(existing.entry_price_usd) || 0) * oldSolSpent + priceUsd * solSpent) / newSolSpent
+      : existing.entry_price_usd;
+    await updatePosition(existing.id, {
+      amount_tokens: newTokens,
+      amount_sol_spent: newSolSpent,
+      entry_price_usd: newEntryUsd,
+    });
+  } else {
+    await createPosition({
+      userTelegramId: telegramId,
+      tokenMint,
+      tokenName: name,
+      tokenSymbol: symbol,
+      entryPriceUsd: priceUsd,
+      entryPriceSol: priceSol,
+      amountTokens: tokens,
+      amountSolSpent: solSpent,
+      tradeId,
+    });
+  }
+}
+
+// Track a sell by closing or reducing an open position
+async function trackSellPosition(telegramId, tokenMint, solReceived, tokensSold) {
+  const existing = await getOpenPositionByMint(telegramId, tokenMint);
+  if (!existing) return; // No position to close
+
+  const oldTokens = Number(existing.amount_tokens) || 0;
+  const sold = Number(tokensSold);
+  const remaining = oldTokens - sold;
+
+  // Get current price for PnL calculation
+  let exitPriceUsd = null;
+  try {
+    const info = await dexService.getTokenInfo(tokenMint);
+    if (info) exitPriceUsd = info.priceUsd;
+  } catch { /* ignore */ }
+
+  if (remaining <= 0) {
+    // Fully closed position
+    const entryPrice = Number(existing.entry_price_usd) || 0;
+    const pnlPct = entryPrice > 0 && exitPriceUsd ? ((exitPriceUsd - entryPrice) / entryPrice) * 100 : null;
+    const pnlSol = (solReceived / 1e9) - Number(existing.amount_sol_spent);
+    await closePosition(existing.id, exitPriceUsd, pnlSol, pnlPct);
+  } else {
+    // Partially sold — reduce position
+    const proportionSold = sold / oldTokens;
+    const solSpentReduced = Number(existing.amount_sol_spent) * (1 - proportionSold);
+    await updatePosition(existing.id, {
+      amount_tokens: remaining,
+      amount_sol_spent: solSpentReduced,
+    });
+  }
 }
 
 module.exports = {
