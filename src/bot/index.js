@@ -50,8 +50,8 @@ function createBot() {
   // Set bot command menu (side menu)
   bot.api.setMyCommands([
     { command: 'start', description: 'Start trading on Solana' },
-    { command: 'buy', description: 'Buy a token — /buy [CA] [SOL]' },
-    { command: 'sell', description: 'Sell a token — /sell [CA] [amount]' },
+    { command: 'buy', description: 'Buy a token' },
+    { command: 'sell', description: 'Sell a token' },
     { command: 'positions', description: 'View your open positions & PnL' },
     { command: 'wallet', description: 'Manage your wallets' },
     { command: 'settings', description: 'Configure your bot settings' },

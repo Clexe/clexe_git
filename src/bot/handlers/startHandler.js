@@ -53,8 +53,8 @@ function register(bot) {
   const helpText =
     `❓ *Help & Commands*\n\n` +
     `*Trading*\n` +
-    `/buy \`<CA>\` \`<SOL>\` — Quick buy a token\n` +
-    `/sell \`<CA>\` \`<amount>\` — Quick sell a token\n` +
+    `/buy — Buy a token (step-by-step)\n` +
+    `/sell — Sell a token (step-by-step)\n` +
     `/positions — View open positions & PnL\n` +
     `/dca — Dollar-cost averaging\n` +
     `/snipe — Snipe new token launches\n\n` +

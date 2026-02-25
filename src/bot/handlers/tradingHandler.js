@@ -174,54 +174,102 @@ function register(bot) {
     await ctx.answerCallbackQuery();
   });
 
-  // Quick buy command: /buy <mint> <sol_amount>
+  // /buy command — step by step, or shorthand /buy <mint> <sol>
   bot.command('buy', async (ctx) => {
     const args = ctx.message.text.split(' ').slice(1);
-    if (args.length < 2) {
-      await ctx.reply('Usage: `/buy <token_mint_address> <sol_amount>`', { parse_mode: 'Markdown' });
-      return;
-    }
-    const [tokenMint, solAmountStr] = args;
-    const solAmount = parseFloat(solAmountStr);
-    if (isNaN(solAmount) || solAmount <= 0) {
-      await ctx.reply('❌ Invalid SOL amount.');
+
+    if (args.length >= 2) {
+      // Shorthand: /buy <mint> <sol>
+      const [tokenMint, solAmountStr] = args;
+      const solAmount = parseFloat(solAmountStr);
+      if (isNaN(solAmount) || solAmount <= 0) {
+        await ctx.reply('❌ Invalid SOL amount.');
+        return;
+      }
+      await ctx.reply(`⏳ Buying ${solAmount} SOL worth of \`${tokenMint.slice(0, 8)}...\``, { parse_mode: 'Markdown' });
+      try {
+        const result = await tradingService.buyToken(ctx.from.id, tokenMint, solAmount);
+        const msg = await buildBuyConfirmation(tokenMint, solAmount, result.signature);
+        await ctx.reply(msg, { parse_mode: 'Markdown', link_preview_is_disabled: true });
+      } catch (err) {
+        await ctx.reply(`❌ Buy failed: ${err.message}`);
+      }
       return;
     }
 
-    await ctx.reply(`⏳ Buying ${solAmount} SOL worth of \`${tokenMint.slice(0, 8)}...\``, { parse_mode: 'Markdown' });
-
-    try {
-      const result = await tradingService.buyToken(ctx.from.id, tokenMint, solAmount);
-      const msg = await buildBuyConfirmation(tokenMint, solAmount, result.signature);
-      await ctx.reply(msg, { parse_mode: 'Markdown', link_preview_is_disabled: true });
-    } catch (err) {
-      await ctx.reply(`❌ Buy failed: ${err.message}`);
+    if (args.length === 1 && isSolanaAddress(args[0])) {
+      // /buy <mint> — skip to amount step
+      const tokenMint = args[0];
+      sessions.set(ctx.from.id, { action: 'buy_token', step: 'amount', tokenMint });
+      const settings = withDefaults(await getUserSettings(ctx.from.id));
+      try {
+        const info = await dexService.getTokenInfo(tokenMint);
+        if (info) {
+          const infoText = dexService.formatTokenInfo(info);
+          await ctx.reply(
+            `🟢 *Buy Token*\n\n${infoText}\n\nSelect amount or type custom SOL amount:`,
+            { parse_mode: 'Markdown', reply_markup: userBuyKeyboard(tokenMint, settings) }
+          );
+          return;
+        }
+      } catch { /* ignore */ }
+      await ctx.reply('How much SOL do you want to spend?', { reply_markup: userBuyKeyboard(tokenMint, settings) });
+      return;
     }
+
+    // No args — start step-by-step flow
+    sessions.set(ctx.from.id, { action: 'buy_token', step: 'token' });
+    await ctx.reply('🟢 *Buy Token*\n\nSend the token mint address:', { parse_mode: 'Markdown' });
   });
 
-  // Quick sell command: /sell <mint> <token_amount>
+  // /sell command — step by step, or shorthand /sell <mint> <amount>
   bot.command('sell', async (ctx) => {
     const args = ctx.message.text.split(' ').slice(1);
-    if (args.length < 2) {
-      await ctx.reply('Usage: `/sell <token_mint_address> <token_amount>`', { parse_mode: 'Markdown' });
-      return;
-    }
-    const [tokenMint, amountStr] = args;
-    const amount = parseFloat(amountStr);
-    if (isNaN(amount) || amount <= 0) {
-      await ctx.reply('❌ Invalid amount.');
+
+    if (args.length >= 2) {
+      // Shorthand: /sell <mint> <amount>
+      const [tokenMint, amountStr] = args;
+      const amount = parseFloat(amountStr);
+      if (isNaN(amount) || amount <= 0) {
+        await ctx.reply('❌ Invalid amount.');
+        return;
+      }
+      await ctx.reply(`⏳ Selling ${amount} of \`${tokenMint.slice(0, 8)}...\``, { parse_mode: 'Markdown' });
+      try {
+        const result = await tradingService.sellToken(ctx.from.id, tokenMint, Math.round(amount));
+        const msg = await buildSellConfirmation(tokenMint, null, Math.round(amount), result.signature);
+        await ctx.reply(msg, { parse_mode: 'Markdown', link_preview_is_disabled: true });
+      } catch (err) {
+        await ctx.reply(`❌ Sell failed: ${err.message}`);
+      }
       return;
     }
 
-    await ctx.reply(`⏳ Selling ${amount} of \`${tokenMint.slice(0, 8)}...\``, { parse_mode: 'Markdown' });
-
-    try {
-      const result = await tradingService.sellToken(ctx.from.id, tokenMint, Math.round(amount));
-      const msg = await buildSellConfirmation(tokenMint, null, Math.round(amount), result.signature);
-      await ctx.reply(msg, { parse_mode: 'Markdown', link_preview_is_disabled: true });
-    } catch (err) {
-      await ctx.reply(`❌ Sell failed: ${err.message}`);
+    if (args.length === 1 && isSolanaAddress(args[0])) {
+      // /sell <mint> — skip to amount step
+      const tokenMint = args[0];
+      sessions.set(ctx.from.id, { action: 'sell_token', step: 'amount', tokenMint });
+      const settings = withDefaults(await getUserSettings(ctx.from.id));
+      try {
+        const info = await dexService.getTokenInfo(tokenMint);
+        const balance = await walletService.getTokenBalance(ctx.from.id, tokenMint);
+        if (info) {
+          const infoText = dexService.formatTokenInfo(info);
+          const balText = balance ? `\nYour balance: *${balance.toLocaleString()}* tokens` : '';
+          await ctx.reply(
+            `🔴 *Sell Token*\n\n${infoText}${balText}\n\nSelect % to sell or type custom amount:`,
+            { parse_mode: 'Markdown', reply_markup: userSellKeyboard(tokenMint, settings) }
+          );
+          return;
+        }
+      } catch { /* ignore */ }
+      await ctx.reply('How many tokens to sell? (raw amount)', { reply_markup: userSellKeyboard(tokenMint, settings) });
+      return;
     }
+
+    // No args — start step-by-step flow
+    sessions.set(ctx.from.id, { action: 'sell_token', step: 'token' });
+    await ctx.reply('🔴 *Sell Token*\n\nSend the token mint address:', { parse_mode: 'Markdown' });
   });
 
   // Handle trading session text inputs + auto-buy on paste
