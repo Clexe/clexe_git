@@ -17,6 +17,16 @@ function register(bot) {
     await showPnlHistory(ctx);
     await ctx.answerCallbackQuery();
   });
+
+  bot.callbackQuery('positions:refresh', async (ctx) => {
+    await showPositions(ctx);
+    await ctx.answerCallbackQuery('Refreshed');
+  });
+
+  bot.callbackQuery('pnl:refresh', async (ctx) => {
+    await showPnlHistory(ctx);
+    await ctx.answerCallbackQuery('Refreshed');
+  });
 }
 
 async function showPositions(ctx) {
@@ -69,7 +79,7 @@ async function showPositions(ctx) {
       const label = p.token_symbol || p.token_mint.slice(0, 6);
       kb.text(`Sell ${label}`, `psell:${p.token_mint}`).row();
     });
-    kb.text('📜 PnL History', 'trade:pnl').row();
+    kb.text('🔄 Refresh', 'positions:refresh').text('📜 PnL History', 'trade:pnl').row();
     kb.text('🔙 Back', 'menu:trading');
 
     const text = `📦 *Open Positions*\n\n${lines}`;
@@ -109,7 +119,10 @@ async function showPnlHistory(ctx) {
 
     const totalSign = totalPnl >= 0 ? '+' : '';
     const text = `📜 *PnL History*\n\n${lines}\n\n*Total: ${totalSign}${totalPnl.toFixed(4)} SOL*`;
-    await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: tradingMenuKeyboard() });
+    const pnlKb = new InlineKeyboard()
+      .text('🔄 Refresh', 'pnl:refresh').row()
+      .text('📦 Positions', 'trade:positions').text('🔙 Back', 'menu:trading');
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: pnlKb });
   } catch (err) {
     await ctx.editMessageText(`❌ ${err.message}`, { reply_markup: tradingMenuKeyboard() });
   }
