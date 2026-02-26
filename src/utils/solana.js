@@ -56,8 +56,13 @@ async function getSplTokenBalance(walletPubkey, mintAddress) {
     new PublicKey(walletPubkey),
     { mint: new PublicKey(mintAddress) }
   );
-  if (accounts.value.length === 0) return 0;
-  return accounts.value[0].account.data.parsed.info.tokenAmount.uiAmount;
+  if (accounts.value.length === 0) return { uiAmount: 0, rawAmount: '0', decimals: 0 };
+  const tokenAmount = accounts.value[0].account.data.parsed.info.tokenAmount;
+  return {
+    uiAmount: tokenAmount.uiAmount,
+    rawAmount: tokenAmount.amount,
+    decimals: tokenAmount.decimals,
+  };
 }
 
 async function getAllSplTokenBalances(walletPubkey) {

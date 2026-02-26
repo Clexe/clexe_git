@@ -3,6 +3,7 @@ const tradingService = require('../../services/tradingService');
 const dexService = require('../../services/dexscreenerService');
 const walletService = require('../../services/walletService');
 const { getUserSettings } = require('../../database/userRepo');
+const { getOpenPositionByMint } = require('../../database/tradeRepo');
 const { withDefaults } = require('./settingsHandler');
 const { InlineKeyboard } = require('grammy');
 
@@ -104,10 +105,10 @@ function register(bot) {
     const settings = withDefaults(await getUserSettings(ctx.from.id));
     try {
       const info = await dexService.getTokenInfo(tokenMint);
-      const balance = await walletService.getTokenBalance(ctx.from.id, tokenMint);
+      const balInfo = await walletService.getTokenBalance(ctx.from.id, tokenMint);
       if (info) {
         const infoText = dexService.formatTokenInfo(info);
-        const balText = balance ? `\nYour balance: *${balance.toLocaleString()}* tokens` : '';
+        const balText = balInfo.uiAmount ? `\nYour balance: *${balInfo.uiAmount.toLocaleString()}* tokens` : '';
         await ctx.editMessageText(
           `🔴 *Sell Token*\n\n${infoText}${balText}\n\nSelect % to sell or type custom amount:`,
           { parse_mode: 'Markdown', reply_markup: userSellKeyboard(tokenMint, settings) }
@@ -161,7 +162,7 @@ function register(bot) {
 
     try {
       const result = await tradingService.buyToken(ctx.from.id, tokenMint, solAmount);
-      const msg = await buildBuyConfirmation(tokenMint, solAmount, result.signature);
+      const msg = await buildBuyConfirmation(tokenMint, solAmount, result.signature, ctx.from.id);
       await ctx.editMessageText(msg, {
         parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
       });
@@ -187,20 +188,24 @@ function register(bot) {
     await ctx.answerCallbackQuery();
 
     try {
-      const balance = await walletService.getTokenBalance(ctx.from.id, tokenMint);
-      if (!balance || balance <= 0) {
+      const balInfo = await walletService.getTokenBalance(ctx.from.id, tokenMint);
+      if (!balInfo || balInfo.uiAmount <= 0) {
         await ctx.editMessageText('❌ No token balance found.', { reply_markup: tradingMenuKeyboard() });
         return;
       }
-      const sellAmount = Math.floor(balance * pct / 100);
-      if (sellAmount <= 0) {
+      // Use raw amount (smallest unit) for Jupiter swap
+      const rawBalance = BigInt(balInfo.rawAmount);
+      const sellRaw = Number(rawBalance * BigInt(pct) / BigInt(100));
+      if (sellRaw <= 0) {
         await ctx.editMessageText('❌ Amount too small to sell.', { reply_markup: tradingMenuKeyboard() });
         return;
       }
-      await ctx.editMessageText(`⏳ Selling ${pct}% (${sellAmount} tokens)...`);
+      const displayAmount = (balInfo.uiAmount * pct / 100).toFixed(balInfo.decimals > 4 ? 4 : balInfo.decimals);
+      await ctx.editMessageText(`⏳ Selling ${pct}% (${displayAmount} tokens)...`);
 
-      const result = await tradingService.sellToken(ctx.from.id, tokenMint, sellAmount);
-      const msg = await buildSellConfirmation(tokenMint, pct, sellAmount, result.signature);
+      const result = await tradingService.sellToken(ctx.from.id, tokenMint, sellRaw);
+      const settings = withDefaults(await getUserSettings(ctx.from.id));
+      const msg = await buildSellConfirmation(tokenMint, pct, displayAmount, result.signature, ctx.from.id, settings);
       await ctx.editMessageText(msg, {
         parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
       });
@@ -216,10 +221,10 @@ function register(bot) {
     sessions.set(ctx.from.id, { action: 'sell_token', step: 'amount', tokenMint });
     try {
       const info = await dexService.getTokenInfo(tokenMint);
-      const balance = await walletService.getTokenBalance(ctx.from.id, tokenMint);
+      const balInfo = await walletService.getTokenBalance(ctx.from.id, tokenMint);
       if (info) {
         const infoText = dexService.formatTokenInfo(info);
-        const balText = balance ? `\nYour balance: *${balance.toLocaleString()}* tokens` : '';
+        const balText = balInfo.uiAmount ? `\nYour balance: *${balInfo.uiAmount.toLocaleString()}* tokens` : '';
         await ctx.editMessageText(
           `🔴 *Sell Token*\n\n${infoText}${balText}\n\nSelect % to sell or type custom amount:`,
           { parse_mode: 'Markdown', reply_markup: userSellKeyboard(tokenMint, settings) }
@@ -252,7 +257,7 @@ function register(bot) {
       await ctx.reply(`⏳ Buying ${solAmount} SOL worth of \`${tokenMint.slice(0, 8)}...\``, { parse_mode: 'Markdown' });
       try {
         const result = await tradingService.buyToken(ctx.from.id, tokenMint, solAmount);
-        const msg = await buildBuyConfirmation(tokenMint, solAmount, result.signature);
+        const msg = await buildBuyConfirmation(tokenMint, solAmount, result.signature, ctx.from.id);
         await ctx.reply(msg, { parse_mode: 'Markdown', link_preview_is_disabled: true });
       } catch (err) {
         await ctx.reply(`❌ Buy failed: ${err.message}`);
@@ -300,7 +305,8 @@ function register(bot) {
       await ctx.reply(`⏳ Selling ${amount} of \`${tokenMint.slice(0, 8)}...\``, { parse_mode: 'Markdown' });
       try {
         const result = await tradingService.sellToken(ctx.from.id, tokenMint, Math.round(amount));
-        const msg = await buildSellConfirmation(tokenMint, null, Math.round(amount), result.signature);
+        const sellSettings = withDefaults(await getUserSettings(ctx.from.id));
+        const msg = await buildSellConfirmation(tokenMint, null, Math.round(amount), result.signature, ctx.from.id, sellSettings);
         await ctx.reply(msg, { parse_mode: 'Markdown', link_preview_is_disabled: true });
       } catch (err) {
         await ctx.reply(`❌ Sell failed: ${err.message}`);
@@ -315,10 +321,10 @@ function register(bot) {
       const settings = withDefaults(await getUserSettings(ctx.from.id));
       try {
         const info = await dexService.getTokenInfo(tokenMint);
-        const balance = await walletService.getTokenBalance(ctx.from.id, tokenMint);
+        const balInfo = await walletService.getTokenBalance(ctx.from.id, tokenMint);
         if (info) {
           const infoText = dexService.formatTokenInfo(info);
-          const balText = balance ? `\nYour balance: *${balance.toLocaleString()}* tokens` : '';
+          const balText = balInfo.uiAmount ? `\nYour balance: *${balInfo.uiAmount.toLocaleString()}* tokens` : '';
           await ctx.reply(
             `🔴 *Sell Token*\n\n${infoText}${balText}\n\nSelect % to sell or type custom amount:`,
             { parse_mode: 'Markdown', reply_markup: userSellKeyboard(tokenMint, settings) }
@@ -358,7 +364,7 @@ function register(bot) {
             await ctx.reply(infoText, { parse_mode: 'Markdown' });
           }
           const result = await tradingService.buyToken(ctx.from.id, text, autoAmount);
-          const msg = await buildBuyConfirmation(text, autoAmount, result.signature);
+          const msg = await buildBuyConfirmation(text, autoAmount, result.signature, ctx.from.id);
           await ctx.reply(msg, { parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard() });
         } catch (err) {
           await ctx.reply(`❌ Auto-buy failed: ${err.message}`, { reply_markup: tradingMenuKeyboard() });
@@ -417,7 +423,7 @@ function register(bot) {
         await ctx.reply(`⏳ Buying ${solAmount} SOL worth...`);
         try {
           const result = await tradingService.buyToken(ctx.from.id, session.tokenMint, solAmount);
-          const msg = await buildBuyConfirmation(session.tokenMint, solAmount, result.signature);
+          const msg = await buildBuyConfirmation(session.tokenMint, solAmount, result.signature, ctx.from.id);
           await ctx.reply(msg, {
             parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
           });
@@ -434,10 +440,10 @@ function register(bot) {
         session.step = 'amount';
         try {
           const info = await dexService.getTokenInfo(text);
-          const balance = await walletService.getTokenBalance(ctx.from.id, text);
+          const balInfo = await walletService.getTokenBalance(ctx.from.id, text);
           if (info) {
             const infoText = dexService.formatTokenInfo(info);
-            const balText = balance ? `\nYour balance: *${balance.toLocaleString()}* tokens` : '';
+            const balText = balInfo.uiAmount ? `\nYour balance: *${balInfo.uiAmount.toLocaleString()}* tokens` : '';
             await ctx.reply(
               `🔴 *Sell Token*\n\n${infoText}${balText}\n\nSelect % to sell or type custom amount:`,
               { parse_mode: 'Markdown', reply_markup: userSellKeyboard(text, settings) }
@@ -458,7 +464,8 @@ function register(bot) {
         await ctx.reply('⏳ Selling...');
         try {
           const result = await tradingService.sellToken(ctx.from.id, session.tokenMint, Math.round(amount));
-          const msg = await buildSellConfirmation(session.tokenMint, null, Math.round(amount), result.signature);
+          const sellSettings = withDefaults(await getUserSettings(ctx.from.id));
+          const msg = await buildSellConfirmation(session.tokenMint, null, Math.round(amount), result.signature, ctx.from.id, sellSettings);
           await ctx.reply(msg, {
             parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
           });
@@ -502,7 +509,7 @@ function register(bot) {
 }
 
 // Helper: build buy confirmation message with token info
-async function buildBuyConfirmation(tokenMint, solAmount, signature) {
+async function buildBuyConfirmation(tokenMint, solAmount, signature, telegramId) {
   let msg = `✅ *Buy Executed!*\n\n` +
     `Spent: *${solAmount} SOL*\n` +
     `TX: [Solscan](https://solscan.io/tx/${signature})`;
@@ -519,14 +526,30 @@ async function buildBuyConfirmation(tokenMint, solAmount, signature) {
         `MCap: ${mcap}\n` +
         `5m: ${fmt(pc.m5)} | 1h: ${fmt(pc.h1)} | 24h: ${fmt(pc.h24)}\n` +
         `TX: [Solscan](https://solscan.io/tx/${signature})`;
+
+      // Show position summary after buy
+      if (telegramId) {
+        try {
+          const position = await getOpenPositionByMint(telegramId, tokenMint);
+          if (position) {
+            const totalSpent = Number(position.amount_sol_spent || 0).toFixed(4);
+            const entryStr = position.entry_price_usd
+              ? `$${Number(position.entry_price_usd).toFixed(10).replace(/0+$/, '0')}`
+              : 'N/A';
+            msg += `\n\n📊 *Position*\n` +
+              `Entry: ${entryStr}\n` +
+              `Total invested: ${totalSpent} SOL`;
+          }
+        } catch { /* ignore */ }
+      }
     }
   } catch { /* ignore */ }
   return msg;
 }
 
-// Helper: build sell confirmation message with token info
-async function buildSellConfirmation(tokenMint, pct, amount, signature) {
-  const soldLabel = pct ? `*${pct}%* (${amount} tokens)` : `*${amount}* tokens`;
+// Helper: build sell confirmation message with token info + PnL card
+async function buildSellConfirmation(tokenMint, pct, displayAmount, signature, telegramId, settings) {
+  const soldLabel = pct ? `*${pct}%* (${displayAmount} tokens)` : `*${displayAmount}* tokens`;
   let msg = `✅ *Sell Executed!*\n\n` +
     `Sold: ${soldLabel}\n` +
     `TX: [Solscan](https://solscan.io/tx/${signature})`;
@@ -543,6 +566,29 @@ async function buildSellConfirmation(tokenMint, pct, amount, signature) {
         `MCap: ${mcap}\n` +
         `5m: ${fmt(pc.m5)} | 1h: ${fmt(pc.h1)} | 24h: ${fmt(pc.h24)}\n` +
         `TX: [Solscan](https://solscan.io/tx/${signature})`;
+
+      // PnL card: show entry vs exit price + PnL if position data exists
+      if (telegramId && (!settings || settings.pnlCards !== false)) {
+        try {
+          const position = await getOpenPositionByMint(telegramId, tokenMint);
+          if (position && position.entry_price_usd) {
+            const entryPrice = Number(position.entry_price_usd);
+            const exitPrice = info.priceUsd;
+            if (entryPrice > 0 && exitPrice) {
+              const pnlPct = ((exitPrice - entryPrice) / entryPrice) * 100;
+              const pnlSign = pnlPct >= 0 ? '+' : '';
+              const pnlEmoji = pnlPct >= 0 ? '🟢' : '🔴';
+              const entryStr = entryPrice.toFixed(10).replace(/0+$/, '0');
+              const solSpent = Number(position.amount_sol_spent || 0).toFixed(4);
+              msg += `\n\n${pnlEmoji} *PnL Card*\n` +
+                `Entry: $${entryStr}\n` +
+                `Exit: $${price}\n` +
+                `Invested: ${solSpent} SOL\n` +
+                `PnL: *${pnlSign}${pnlPct.toFixed(2)}%*`;
+            }
+          }
+        } catch { /* ignore position lookup failure */ }
+      }
     }
   } catch { /* ignore */ }
   return msg;

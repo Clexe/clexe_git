@@ -107,7 +107,11 @@ async function executeSwap(telegramId, { inputMint, outputMint, amount, slippage
       maxRetries: 3,
     });
 
-    await conn.confirmTransaction(signature, config.solana.commitment);
+    // Wait for confirmation and verify actual on-chain success
+    const confirmation = await conn.confirmTransaction(signature, config.solana.commitment);
+    if (confirmation.value?.err) {
+      throw new Error(`Transaction failed on-chain: ${JSON.stringify(confirmation.value.err)}`);
+    }
 
     await updateTrade(tradeId, {
       tx_signature: signature,

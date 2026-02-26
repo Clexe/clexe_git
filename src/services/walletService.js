@@ -79,7 +79,8 @@ async function getWalletBalance(telegramId) {
 async function getTokenBalance(telegramId, mintAddress) {
   const pubkey = await getPublicKey(telegramId);
   if (!pubkey) throw new Error('No wallet found.');
-  return getSplTokenBalance(pubkey, mintAddress);
+  const result = await getSplTokenBalance(pubkey, mintAddress);
+  return result;
 }
 
 async function getAllTokenBalances(telegramId) {
