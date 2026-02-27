@@ -7,9 +7,18 @@ const { startLimitOrderWorker, stopLimitOrderWorker } = require('./jobs/limitOrd
 const { startDcaWorker, stopDcaWorker } = require('./jobs/dcaWorker');
 const { startWalletTrackerWorker, stopWalletTrackerWorker } = require('./jobs/walletTrackerWorker');
 const { startCopyTradeWorker, stopCopyTradeWorker } = require('./jobs/copyTradeWorker');
+const { startCleanupWorker, stopCleanupWorker } = require('./jobs/cleanupWorker');
 
 async function main() {
   logger.info('Starting DEX Trading Bot...');
+
+  // Validate configuration
+  const { errors, warnings } = config.validate();
+  for (const w of warnings) logger.warn(w);
+  if (errors.length > 0) {
+    for (const e of errors) logger.fatal(e);
+    throw new Error(`Config validation failed: ${errors.join('; ')}`);
+  }
 
   // Run database migrations
   await migrate();
@@ -23,6 +32,7 @@ async function main() {
   startDcaWorker(bot, 15000);
   startWalletTrackerWorker(bot, 30000);
   startCopyTradeWorker(bot, 10000);
+  startCleanupWorker();
 
   // Graceful shutdown
   const shutdown = async (signal) => {
@@ -32,6 +42,7 @@ async function main() {
     stopDcaWorker();
     stopWalletTrackerWorker();
     stopCopyTradeWorker();
+    stopCleanupWorker();
     await bot.stop();
     const { closeDb } = require('./database/db');
     await closeDb();

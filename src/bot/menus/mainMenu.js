@@ -84,14 +84,10 @@ function settingsMenuKeyboard(settings = {}) {
     .text(speed === 'custom' ? '[ Custom ]' : 'Custom', 'settings:speed:custom').row()
     // Sub-menus
     .text('Buy Settings', 'settings:buy').text('Sell Settings', 'settings:sell').row()
-    // Toggles
-    .text(`${onOff(settings.mevProtectBuy)} MEV Protect (Buy)`, 'settings:toggle:mevProtectBuy')
-    .text(`${onOff(settings.mevProtectSell)} MEV Protect (Sell)`, 'settings:toggle:mevProtectSell').row()
+    // Active toggles
     .text(`${onOff(settings.autoBuy)} Auto Buy`, 'settings:toggle:autoBuy')
-    .text(`${onOff(settings.autoSell)} Auto Sell`, 'settings:toggle:autoSell').row()
     .text(`${onOff(settings.confirmTrades !== false)} Confirm Trades`, 'settings:toggle:confirmTrades').row()
-    .text(`${onOff(settings.pnlCards !== false)} PnL Cards`, 'settings:toggle:pnlCards')
-    .text(`${onOff(settings.chartPreviews)} Chart Previews`, 'settings:toggle:chartPreviews').row()
+    .text(`${onOff(settings.pnlCards !== false)} PnL Cards`, 'settings:toggle:pnlCards').row()
     .text('🔙 Back', 'menu:main');
 }
 

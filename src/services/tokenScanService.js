@@ -2,7 +2,7 @@ const { getConnection, PublicKey } = require('../utils/solana');
 const logger = require('../utils/logger');
 
 /**
- * Basic on-chain token security checks.
+ * On-chain token security checks.
  * Returns { safe: bool, warnings: string[] }
  */
 async function scanToken(mintAddress) {
@@ -33,16 +33,37 @@ async function scanToken(mintAddress) {
       warnings.push('Freeze authority active — dev can freeze your tokens');
     }
 
+    // Check if token uses Token-2022 program (may have transfer fees)
+    const owner = accountInfo.value.owner?.toBase58?.() || '';
+    if (owner === 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb') {
+      warnings.push('Token-2022 program — may have transfer fees or extensions');
+    }
+
+    // Check supply and decimals for anomalies
+    const totalSupply = Number(mintData.supply);
+    const decimals = mintData.decimals || 0;
+    if (totalSupply === 0) {
+      warnings.push('Total supply is 0');
+    }
+    if (decimals === 0 && totalSupply > 0) {
+      warnings.push('Token has 0 decimals — may be an NFT or unusual token');
+    }
+
     // Check supply concentration by looking at largest accounts
     try {
       const topHolders = await conn.getTokenLargestAccounts(mintPubkey);
-      if (topHolders.value.length > 0) {
-        const totalSupply = Number(mintData.supply);
-        if (totalSupply > 0) {
-          const topHolderPct = (Number(topHolders.value[0].amount) / totalSupply) * 100;
-          if (topHolderPct > 50) {
-            warnings.push(`Top holder owns ${topHolderPct.toFixed(1)}% of supply`);
-          }
+      if (topHolders.value.length > 0 && totalSupply > 0) {
+        const topHolderPct = (Number(topHolders.value[0].amount) / totalSupply) * 100;
+        if (topHolderPct > 80) {
+          warnings.push(`Top holder owns ${topHolderPct.toFixed(1)}% — high rug risk`);
+        } else if (topHolderPct > 50) {
+          warnings.push(`Top holder owns ${topHolderPct.toFixed(1)}% of supply`);
+        }
+
+        // Check if very few holders
+        const holdersWithBalance = topHolders.value.filter(h => Number(h.amount) > 0).length;
+        if (holdersWithBalance <= 3 && totalSupply > 0) {
+          warnings.push(`Only ${holdersWithBalance} holder(s) detected — low distribution`);
         }
       }
     } catch { /* ignore if largest accounts fails */ }

@@ -2,7 +2,15 @@ const { getAllActiveCopyTrades } = require('../database/tradeRepo');
 const { getConnection, PublicKey } = require('../utils/solana');
 const { query } = require('../database/db');
 const tradingService = require('../services/tradingService');
+const walletService = require('../services/walletService');
 const logger = require('../utils/logger');
+
+// Known Jupiter program IDs
+const JUPITER_PROGRAMS = new Set([
+  'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4',
+  'JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcPX7a',
+  'JUP2jxvXaqu7NQY1GmNF4m1vodw12LVXYxbFL2uJvfo',
+]);
 
 let interval = null;
 const lastSignatures = new Map(); // in-memory cache, seeded from DB on first run
@@ -72,19 +80,21 @@ async function processCopyTrades(bot) {
         });
         if (!txInfo) continue;
 
+        // Skip failed transactions — only copy successful swaps
+        if (txInfo.meta?.err) {
+          logger.debug({ wallet, sig: latestSig }, 'Copy trade: skipping failed transaction');
+          continue;
+        }
+
         // Look for token swap patterns in instructions
         const instructions = txInfo.transaction?.message?.instructions || [];
-        const innerInstructions = txInfo.meta?.innerInstructions || [];
 
         // Detect Jupiter/swap program calls
         let swapDetected = false;
-        let tokenMint = null;
 
         for (const ix of instructions) {
           const programId = ix.programId?.toBase58?.() || ix.programId;
-          // Jupiter v6 program
-          if (programId === 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4' ||
-              programId === 'JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcPX7a') {
+          if (JUPITER_PROGRAMS.has(programId)) {
             swapDetected = true;
           }
         }
@@ -92,6 +102,7 @@ async function processCopyTrades(bot) {
         if (!swapDetected) continue;
 
         // Try to extract token from post-token balances
+        let tokenMint = null;
         const postTokenBalances = txInfo.meta?.postTokenBalances || [];
         for (const bal of postTokenBalances) {
           if (bal.owner === wallet && bal.mint !== tradingService.SOL_MINT) {
@@ -106,7 +117,7 @@ async function processCopyTrades(bot) {
         const preBalances = txInfo.meta?.preBalances || [];
         const postBalances = txInfo.meta?.postBalances || [];
         const accountKeys = txInfo.transaction?.message?.accountKeys || [];
-        let walletIdx = accountKeys.findIndex(k => (k.pubkey?.toBase58?.() || k) === wallet);
+        const walletIdx = accountKeys.findIndex(k => (k.pubkey?.toBase58?.() || k) === wallet);
         const isBuy = walletIdx >= 0 && postBalances[walletIdx] < preBalances[walletIdx];
 
         for (const copyConfig of subscribers) {
@@ -124,7 +135,6 @@ async function processCopyTrades(bot) {
               );
             } else {
               // Sell all of this token
-              const walletService = require('../services/walletService');
               const balance = await walletService.getTokenBalance(copyConfig.user_telegram_id, tokenMint);
               if (!balance || balance.uiAmount <= 0) continue;
               result = await tradingService.sellToken(
@@ -143,11 +153,19 @@ async function processCopyTrades(bot) {
                 `TX: [Solscan](https://solscan.io/tx/${result.signature})`,
                 { parse_mode: 'Markdown', link_preview_is_disabled: true }
               );
-            } catch { /* ignore */ }
+            } catch { /* ignore notification failure */ }
 
             logger.info({ userId: copyConfig.user_telegram_id, wallet, tokenMint, isBuy }, 'Copy trade executed');
           } catch (err) {
             logger.error({ err: err.message, userId: copyConfig.user_telegram_id, wallet }, 'Copy trade execution failed');
+            try {
+              await bot.api.sendMessage(copyConfig.user_telegram_id,
+                `❌ *Copy Trade Failed*\n\n` +
+                `Wallet: \`${wallet.slice(0, 12)}...\`\n` +
+                `Error: ${err.message.slice(0, 100)}`,
+                { parse_mode: 'Markdown' }
+              );
+            } catch { /* ignore */ }
           }
         }
       } catch (err) {

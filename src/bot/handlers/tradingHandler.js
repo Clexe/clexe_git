@@ -7,8 +7,9 @@ const { getUserSettings } = require('../../database/userRepo');
 const { getOpenPositionByMint } = require('../../database/tradeRepo');
 const { withDefaults, getPriorityFee } = require('./settingsHandler');
 const { InlineKeyboard } = require('grammy');
+const { SessionStore } = require('../../utils/sessionStore');
 
-const sessions = new Map();
+const sessions = new SessionStore();
 
 // Per-user trade mutex to prevent concurrent trades
 const tradeLocks = new Map();

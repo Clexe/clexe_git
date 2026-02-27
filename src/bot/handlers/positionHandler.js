@@ -35,21 +35,31 @@ async function showPositions(ctx) {
   try {
     const dbPositions = await getOpenPositions(ctx.from.id);
 
-    // Deduplicate: keep only one position per token_mint (most recent)
+    // Deduplicate: keep only one position per token_mint
+    // Merge duplicates in the background (not on every refresh)
     const mintMap = new Map();
+    const mergePromises = [];
     for (const p of dbPositions) {
       const existing = mintMap.get(p.token_mint);
       if (!existing) {
         mintMap.set(p.token_mint, p);
       } else {
-        // Merge duplicates: combine SOL spent + tokens, keep newer entry
+        // Merge into the existing entry, close the duplicate in background
         const mergedSol = (Number(existing.amount_sol_spent) || 0) + (Number(p.amount_sol_spent) || 0);
         const mergedTokens = (Number(existing.amount_tokens) || 0) + (Number(p.amount_tokens) || 0);
-        await updatePosition(existing.id, { amount_sol_spent: mergedSol, amount_tokens: mergedTokens });
-        await closePosition(p.id, null, 0, 0); // close the duplicate
         existing.amount_sol_spent = mergedSol;
         existing.amount_tokens = mergedTokens;
+        mergePromises.push(
+          Promise.all([
+            updatePosition(existing.id, { amount_sol_spent: mergedSol, amount_tokens: mergedTokens }),
+            closePosition(p.id, null, 0, 0),
+          ]).catch(err => logger.warn({ err: err.message }, 'Position merge cleanup failed'))
+        );
       }
+    }
+    // Fire-and-forget merge cleanup — don't block the UI
+    if (mergePromises.length > 0) {
+      Promise.all(mergePromises).catch(() => {});
     }
 
     // Cross-check with on-chain balances and prune positions with 0 balance
@@ -155,7 +165,11 @@ async function showPnlHistory(ctx) {
     const closed = await getClosedPositions(ctx.from.id, 10);
     if (closed.length === 0) {
       const text = '📜 *No closed positions yet.*';
-      await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: tradingMenuKeyboard() });
+      if (ctx.callbackQuery) {
+        await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: tradingMenuKeyboard() });
+      } else {
+        await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: tradingMenuKeyboard() });
+      }
       return;
     }
 

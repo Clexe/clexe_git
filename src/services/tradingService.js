@@ -132,15 +132,19 @@ async function executeSwap(telegramId, { inputMint, outputMint, amount, slippage
 
     logger.info({ telegramId, tradeId, signature, tradeType }, 'Trade executed');
 
-    // Collect platform fee + referral sharing
+    // Collect platform fee + referral sharing (non-blocking — trade already succeeded)
     let platformFee = 0;
-    if (tradeType === 'buy') {
-      platformFee = feeInfo.fee;
-      await collectPlatformFee(keypair, feeInfo.fee, feeInfo.wallet);
-    } else {
-      const sellFeeInfo = calculatePlatformFee(Number(quote.outAmount));
-      platformFee = sellFeeInfo.fee;
-      await collectPlatformFee(keypair, sellFeeInfo.fee, sellFeeInfo.wallet);
+    try {
+      if (tradeType === 'buy') {
+        platformFee = feeInfo.fee;
+        await collectPlatformFee(keypair, feeInfo.fee, feeInfo.wallet);
+      } else {
+        const sellFeeInfo = calculatePlatformFee(Number(quote.outAmount));
+        platformFee = sellFeeInfo.fee;
+        await collectPlatformFee(keypair, sellFeeInfo.fee, sellFeeInfo.wallet);
+      }
+    } catch (err) {
+      logger.error({ err: err.message, tradeId, platformFee }, 'Platform fee collection failed — trade still succeeded');
     }
 
     // Referral fee sharing: 30% of platform fee to referrer
@@ -153,15 +157,21 @@ async function executeSwap(telegramId, { inputMint, outputMint, amount, slippage
             const referralSol = referralShare / 1e9;
             const referrer = await findUser(user.referred_by);
             if (referrer?.wallet_public_key) {
-              const refSig = await sendSol(keypair, referrer.wallet_public_key, referralSol);
-              // Only record earnings after successful transfer
+              // Record earnings first, then transfer — if transfer fails, we can reconcile later
               await addReferralEarnings(user.referred_by, referralSol);
-              logger.info({ referrer: user.referred_by, share: referralSol, signature: refSig }, 'Referral fee distributed');
+              try {
+                const refSig = await sendSol(keypair, referrer.wallet_public_key, referralSol);
+                logger.info({ referrer: user.referred_by, share: referralSol, signature: refSig }, 'Referral fee distributed');
+              } catch (txErr) {
+                // Reverse the earnings record on transfer failure
+                await addReferralEarnings(user.referred_by, -referralSol);
+                logger.warn({ err: txErr.message, referrer: user.referred_by }, 'Referral fee transfer failed — earnings reversed');
+              }
             }
           }
         }
       } catch (err) {
-        logger.warn({ err: err.message }, 'Referral fee distribution failed');
+        logger.warn({ err: err.message, tradeId }, 'Referral fee distribution failed');
       }
     }
 

@@ -1,8 +1,12 @@
 const { walletMenuKeyboard, mainMenuKeyboard } = require('../menus/mainMenu');
 const walletService = require('../../services/walletService');
+const { SessionStore } = require('../../utils/sessionStore');
 
-// Session store for multi-step flows
-const sessions = new Map();
+const sessions = new SessionStore();
+
+// Rate limit private key exports: max 1 per hour per user
+const exportCooldowns = new Map();
+const EXPORT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 function register(bot) {
   bot.command('wallet', async (ctx) => {
@@ -72,6 +76,16 @@ function register(bot) {
   });
 
   bot.callbackQuery('wallet:export', async (ctx) => {
+    const lastExport = exportCooldowns.get(ctx.from.id);
+    if (lastExport && Date.now() - lastExport < EXPORT_COOLDOWN_MS) {
+      const minsLeft = Math.ceil((EXPORT_COOLDOWN_MS - (Date.now() - lastExport)) / 60000);
+      await ctx.editMessageText(
+        `🔒 Export is rate-limited. Try again in ${minsLeft} minute(s).`,
+        { reply_markup: walletMenuKeyboard() }
+      );
+      await ctx.answerCallbackQuery();
+      return;
+    }
     sessions.set(ctx.from.id, { action: 'confirm_export' });
     await ctx.editMessageText(
       '🔑 *Export Private Key*\n\n' +
@@ -106,6 +120,7 @@ function register(bot) {
       }
       try {
         const privateKey = await walletService.exportPrivateKey(ctx.from.id);
+        exportCooldowns.set(ctx.from.id, Date.now());
         await ctx.reply(
           `🔑 *Your Private Key:*\n\n\`${privateKey}\`\n\n` +
           `⚠️ *DELETE THIS MESSAGE NOW!* Never share your key with anyone.`,

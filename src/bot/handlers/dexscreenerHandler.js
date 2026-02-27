@@ -2,8 +2,9 @@ const { dexscreenerMenuKeyboard, boostTierKeyboard, mainMenuKeyboard } = require
 const dexService = require('../../services/dexscreenerService');
 const { getUserDexPayments } = require('../../database/tradeRepo');
 const walletService = require('../../services/walletService');
+const { SessionStore } = require('../../utils/sessionStore');
 
-const sessions = new Map();
+const sessions = new SessionStore();
 
 function register(bot) {
   bot.command('dex', async (ctx) => {

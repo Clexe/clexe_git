@@ -1,8 +1,9 @@
 const { mainMenuKeyboard } = require('../menus/mainMenu');
 const { createCopyTrade, getUserCopyTrades, deactivateCopyTrade } = require('../../database/tradeRepo');
 const { InlineKeyboard } = require('grammy');
+const { SessionStore } = require('../../utils/sessionStore');
 
-const sessions = new Map();
+const sessions = new SessionStore();
 
 function register(bot) {
   bot.command('copy', async (ctx) => {

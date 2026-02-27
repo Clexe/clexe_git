@@ -1,7 +1,8 @@
 const { sniperMenuKeyboard, mainMenuKeyboard } = require('../menus/mainMenu');
 const { createSnipeOrder, getActiveSnipeOrders, updateSnipeOrder } = require('../../database/tradeRepo');
+const { SessionStore } = require('../../utils/sessionStore');
 
-const sessions = new Map();
+const sessions = new SessionStore();
 
 function register(bot) {
   bot.command('snipe', async (ctx) => {
@@ -79,6 +80,10 @@ function register(bot) {
       const amount = parseFloat(text);
       if (isNaN(amount) || amount <= 0) {
         await ctx.reply('❌ Invalid amount. Enter a number:');
+        return;
+      }
+      if (amount > 100) {
+        await ctx.reply('❌ Max snipe amount is 100 SOL per order. Enter a smaller amount:');
         return;
       }
       session.amountSol = amount;

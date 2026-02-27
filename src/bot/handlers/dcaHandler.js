@@ -1,8 +1,9 @@
 const { tradingMenuKeyboard } = require('../menus/mainMenu');
 const { createDcaOrder, getUserDcaOrders, cancelDcaOrder } = require('../../database/tradeRepo');
 const { InlineKeyboard } = require('grammy');
+const { SessionStore } = require('../../utils/sessionStore');
 
-const sessions = new Map();
+const sessions = new SessionStore();
 
 const INTERVAL_MAP = {
   '1m': 60,

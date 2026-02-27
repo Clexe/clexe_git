@@ -35,7 +35,8 @@ async function processLimitOrders(bot) {
       let info;
       try {
         info = await dexService.getTokenInfo(tokenMint);
-      } catch {
+      } catch (err) {
+        logger.warn({ err: err.message, tokenMint }, 'Limit order: failed to fetch price — skipping this cycle');
         continue;
       }
       if (!info || !info.priceUsd) continue;
@@ -99,6 +100,16 @@ async function processLimitOrders(bot) {
         } catch (err) {
           await updateLimitOrder(order.id, { status: 'failed' });
           logger.error({ err: err.message, orderId: order.id }, 'Limit order execution failed');
+          // Notify user about the failure
+          const labels = { take_profit: 'Take Profit', stop_loss: 'Stop Loss', limit_buy: 'Limit Buy' };
+          try {
+            await bot.api.sendMessage(order.user_telegram_id,
+              `❌ *${labels[order.order_type] || 'Limit Order'} Failed*\n\n` +
+              `Token: \`${tokenMint.slice(0, 12)}...\`\n` +
+              `Error: ${err.message.slice(0, 100)}`,
+              { parse_mode: 'Markdown' }
+            );
+          } catch { /* ignore notification failure */ }
         }
       }
     }

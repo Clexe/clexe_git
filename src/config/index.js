@@ -46,4 +46,36 @@ const config = {
   },
 };
 
+// Validate required environment variables at startup
+function validateConfig() {
+  const errors = [];
+
+  if (!config.bot.token) {
+    errors.push('BOT_TOKEN is required');
+  }
+  if (!config.database.url) {
+    errors.push('DATABASE_URL is required');
+  }
+  if (!config.security.encryptionKey) {
+    errors.push('WALLET_ENCRYPTION_KEY is required');
+  } else if (config.security.encryptionKey.length < 32) {
+    errors.push('WALLET_ENCRYPTION_KEY must be at least 32 characters (64 hex chars recommended)');
+  }
+
+  const warnings = [];
+  if (!config.trading.platformFeeWallet) {
+    warnings.push('PLATFORM_FEE_WALLET not set — platform fees will not be collected');
+  }
+  if (!config.jupiter.apiKey) {
+    warnings.push('JUPITER_API_KEY not set — rate limits may apply');
+  }
+  if (config.bot.adminIds.length === 0) {
+    warnings.push('BOT_ADMIN_IDS not set — /admin command will be inaccessible');
+  }
+
+  return { errors, warnings };
+}
+
+config.validate = validateConfig;
+
 module.exports = config;

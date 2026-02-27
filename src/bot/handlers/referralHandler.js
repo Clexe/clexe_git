@@ -20,7 +20,7 @@ function register(bot) {
       const user = await findUser(ctx.from.id);
       let code = user?.referral_code;
       if (!code) {
-        code = crypto.randomBytes(4).toString('hex');
+        code = crypto.randomBytes(8).toString('hex');
         await query('UPDATE users SET referral_code = $1 WHERE telegram_id = $2', [code, ctx.from.id]);
       }
       const botInfo = ctx.me;

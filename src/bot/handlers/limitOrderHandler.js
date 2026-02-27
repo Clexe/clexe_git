@@ -2,8 +2,9 @@ const { tradingMenuKeyboard } = require('../menus/mainMenu');
 const { createLimitOrder, getActiveLimitOrders, cancelLimitOrder } = require('../../database/tradeRepo');
 const dexService = require('../../services/dexscreenerService');
 const { InlineKeyboard } = require('grammy');
+const { SessionStore } = require('../../utils/sessionStore');
 
-const sessions = new Map();
+const sessions = new SessionStore();
 
 function register(bot) {
   bot.callbackQuery('trade:limit', async (ctx) => {

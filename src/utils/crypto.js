@@ -7,14 +7,19 @@ const TAG_LENGTH = 16;
 
 function getKey() {
   const key = config.security.encryptionKey;
-  if (!key || key.length < 64) {
-    // Backwards compat: support old 32-char keys as UTF-8
-    if (key && key.length >= 32) {
-      return Buffer.from(key.slice(0, 32), 'utf8');
-    }
-    throw new Error('WALLET_ENCRYPTION_KEY must be 64 hex characters (32 bytes)');
+  if (!key) {
+    throw new Error('WALLET_ENCRYPTION_KEY is not set');
   }
-  return Buffer.from(key.slice(0, 64), 'hex');
+  // Prefer 64-char hex key (32 bytes)
+  if (key.length >= 64 && /^[0-9a-fA-F]+$/.test(key.slice(0, 64))) {
+    return Buffer.from(key.slice(0, 64), 'hex');
+  }
+  // Fallback: derive a proper 32-byte key via SHA-256 from whatever was provided
+  // This ensures consistent key length regardless of input format
+  if (key.length >= 32) {
+    return crypto.createHash('sha256').update(key).digest();
+  }
+  throw new Error('WALLET_ENCRYPTION_KEY must be at least 32 characters (64 hex chars recommended)');
 }
 
 function encrypt(plaintext) {

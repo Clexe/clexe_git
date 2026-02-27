@@ -1,7 +1,8 @@
 const { launchMenuKeyboard, mainMenuKeyboard } = require('../menus/mainMenu');
 const tokenLaunchService = require('../../services/tokenLaunchService');
+const { SessionStore } = require('../../utils/sessionStore');
 
-const sessions = new Map();
+const sessions = new SessionStore();
 
 function register(bot) {
   bot.command('launch', async (ctx) => {

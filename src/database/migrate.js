@@ -206,6 +206,12 @@ async function migrate() {
   await query(`CREATE INDEX IF NOT EXISTS idx_dca_orders_active ON dca_orders(status) WHERE status = 'active'`);
   await query(`CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_telegram_id)`);
 
+  // Index for fast position lookup by user + mint (used in deduplication and trade tracking)
+  await query(`CREATE INDEX IF NOT EXISTS idx_positions_user_mint ON positions(user_telegram_id, token_mint) WHERE status = 'open'`);
+
+  // Index for trades by token for idempotency checks
+  await query(`CREATE INDEX IF NOT EXISTS idx_trades_user_token ON trades(user_telegram_id, token_mint, created_at)`);
+
   logger.info('Database migrations complete');
 }
 

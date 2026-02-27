@@ -152,20 +152,13 @@ async function addLiquidity(telegramId, launchId, solAmount) {
   if (launch.creator_telegram_id !== telegramId) throw new Error('Unauthorized');
   if (!launch.mint_address) throw new Error('Token not yet minted');
 
-  await updateTokenLaunch(launchId, {
-    initial_liquidity_sol: solAmount,
-    status: 'liquidity_pending',
-  });
-
-  logger.info({ telegramId, launchId, solAmount }, 'Liquidity addition requested');
-
-  return {
-    launchId,
-    mintAddress: launch.mint_address,
-    solAmount,
-    status: 'liquidity_pending',
-    message: 'Liquidity pool creation submitted. This uses Raydium AMM integration.',
-  };
+  // NOTE: On-chain Raydium AMM pool creation is not yet implemented.
+  // This records the intent in the database for future implementation.
+  throw new Error(
+    'Liquidity pool creation is not yet available. ' +
+    'You can add liquidity manually via Raydium (raydium.io) using your minted token address: ' +
+    launch.mint_address
+  );
 }
 
 async function getLaunchStatus(launchId) {

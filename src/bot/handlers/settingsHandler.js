@@ -1,7 +1,8 @@
 const { settingsMenuKeyboard, buySettingsKeyboard, sellSettingsKeyboard, mainMenuKeyboard } = require('../menus/mainMenu');
 const { getUserSettings, updateUserSettings } = require('../../database/userRepo');
+const { SessionStore } = require('../../utils/sessionStore');
 
-const sessions = new Map();
+const sessions = new SessionStore();
 
 // Default settings schema
 const DEFAULTS = {
@@ -78,8 +79,16 @@ function register(bot) {
   });
 
   // --- Toggle settings ---
+  const ALLOWED_TOGGLES = new Set(['autoBuy', 'confirmTrades', 'pnlCards']);
+
   bot.callbackQuery(/^settings:toggle:/, async (ctx) => {
     const key = ctx.callbackQuery.data.split(':')[2];
+
+    if (!ALLOWED_TOGGLES.has(key)) {
+      await ctx.answerCallbackQuery('This feature is not yet available.');
+      return;
+    }
+
     const settings = withDefaults(await getUserSettings(ctx.from.id));
 
     settings[key] = !settings[key];
