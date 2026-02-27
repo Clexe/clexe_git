@@ -102,8 +102,19 @@ async function executeSwap(telegramId, { inputMint, outputMint, amount, slippage
     transaction.sign([keypair]);
 
     const conn = getConnection();
+
+    // Simulate transaction first to detect honeypots and failing swaps
+    const simulation = await conn.simulateTransaction(transaction, {
+      commitment: 'processed',
+    });
+    if (simulation.value.err) {
+      const errStr = JSON.stringify(simulation.value.err);
+      logger.warn({ telegramId, tradeType, err: errStr }, 'Transaction simulation failed');
+      throw new Error(`Swap simulation failed: ${errStr}`);
+    }
+
     const signature = await conn.sendRawTransaction(transaction.serialize(), {
-      skipPreflight: false,
+      skipPreflight: true, // we already simulated
       maxRetries: 3,
     });
 
@@ -140,9 +151,13 @@ async function executeSwap(telegramId, { inputMint, outputMint, amount, slippage
           const referralShare = Math.floor(platformFee * 0.3);
           if (referralShare > 0) {
             const referralSol = referralShare / 1e9;
-            await addReferralEarnings(user.referred_by, referralSol);
-            await sendSol(keypair, (await findUser(user.referred_by))?.wallet_public_key, referralSol).catch(() => {});
-            logger.info({ referrer: user.referred_by, share: referralSol }, 'Referral fee distributed');
+            const referrer = await findUser(user.referred_by);
+            if (referrer?.wallet_public_key) {
+              const refSig = await sendSol(keypair, referrer.wallet_public_key, referralSol);
+              // Only record earnings after successful transfer
+              await addReferralEarnings(user.referred_by, referralSol);
+              logger.info({ referrer: user.referred_by, share: referralSol, signature: refSig }, 'Referral fee distributed');
+            }
           }
         }
       } catch (err) {
@@ -150,16 +165,24 @@ async function executeSwap(telegramId, { inputMint, outputMint, amount, slippage
       }
     }
 
-    // Position tracking
+    // Position tracking (retry once on failure — this is critical for /positions to work)
     const tokenMint = tradeType === 'buy' ? outputMint : inputMint;
-    try {
-      if (tradeType === 'buy') {
-        await trackBuyPosition(telegramId, tokenMint, amount, quote.outAmount, tradeId);
-      } else {
-        await trackSellPosition(telegramId, tokenMint, Number(quote.outAmount), amount);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        if (tradeType === 'buy') {
+          await trackBuyPosition(telegramId, tokenMint, amount, quote.outAmount, tradeId);
+        } else {
+          await trackSellPosition(telegramId, tokenMint, Number(quote.outAmount), amount);
+        }
+        break; // success
+      } catch (err) {
+        if (attempt === 0) {
+          logger.warn({ err: err.message, tradeId }, 'Position tracking failed, retrying...');
+          await new Promise(r => setTimeout(r, 500));
+        } else {
+          logger.error({ err: err.message, tradeId }, 'Position tracking failed after retry');
+        }
       }
-    } catch (err) {
-      logger.warn({ err: err.message, tradeId }, 'Position tracking failed');
     }
 
     return {

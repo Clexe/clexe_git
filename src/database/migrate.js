@@ -184,6 +184,7 @@ async function migrate() {
   `);
 
   // Safe ALTER TABLEs for existing tables
+  await query(`ALTER TABLE copy_trades ADD COLUMN IF NOT EXISTS last_signature TEXT`);
   await query(`ALTER TABLE dex_payments ADD COLUMN IF NOT EXISTS token_info JSONB`);
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code TEXT`);
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by BIGINT`);

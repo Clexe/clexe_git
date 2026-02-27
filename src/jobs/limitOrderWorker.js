@@ -67,7 +67,11 @@ async function processLimitOrders(bot) {
             let sellAmount;
             if (order.amount_type === 'percent') {
               const balance = await walletService.getTokenBalance(order.user_telegram_id, tokenMint);
-              sellAmount = Math.floor(balance * order.amount / 100);
+              if (!balance || balance.uiAmount <= 0) {
+                await updateLimitOrder(order.id, { status: 'failed' });
+                continue;
+              }
+              sellAmount = Math.floor(Number(balance.rawAmount) * order.amount / 100);
             } else {
               sellAmount = Math.round(order.amount);
             }

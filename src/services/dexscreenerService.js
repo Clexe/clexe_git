@@ -11,6 +11,29 @@ const api = axios.create({
   timeout: 15000,
 });
 
+// In-memory TTL cache for price data — avoids hammering free-tier API
+const priceCache = new Map();
+const CACHE_TTL_MS = 12000; // 12 seconds
+
+function getCached(key) {
+  const entry = priceCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL_MS) {
+    priceCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCache(key, data) {
+  priceCache.set(key, { data, ts: Date.now() });
+  // Prevent unbounded growth
+  if (priceCache.size > 500) {
+    const oldest = priceCache.keys().next().value;
+    priceCache.delete(oldest);
+  }
+}
+
 // DexScreener community-known payment tiers for promoted/trending
 const PAYMENT_TIERS = {
   community_takeover: { label: 'Community Takeover', costSol: 5 },
@@ -23,9 +46,13 @@ const PAYMENT_TIERS = {
 };
 
 async function getTokenPairs(tokenAddress) {
+  const cached = getCached(`pairs:${tokenAddress}`);
+  if (cached) return cached;
   try {
     const { data } = await api.get(`/latest/dex/tokens/${tokenAddress}`);
-    return data.pairs || [];
+    const pairs = data.pairs || [];
+    setCache(`pairs:${tokenAddress}`, pairs);
+    return pairs;
   } catch (err) {
     logger.error({ err: err.message, tokenAddress }, 'DexScreener token lookup failed');
     throw new Error('Failed to fetch token data from DexScreener');

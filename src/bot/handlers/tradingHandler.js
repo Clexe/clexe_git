@@ -2,6 +2,7 @@ const { tradingMenuKeyboard, mainMenuKeyboard } = require('../menus/mainMenu');
 const tradingService = require('../../services/tradingService');
 const dexService = require('../../services/dexscreenerService');
 const walletService = require('../../services/walletService');
+const { scanToken, formatScanWarnings } = require('../../services/tokenScanService');
 const { getUserSettings } = require('../../database/userRepo');
 const { getOpenPositionByMint } = require('../../database/tradeRepo');
 const { withDefaults } = require('./settingsHandler');
@@ -157,11 +158,12 @@ function register(bot) {
     }
 
     const solAmount = parseFloat(amountStr);
+    const settings = withDefaults(await getUserSettings(ctx.from.id));
     await ctx.editMessageText(`⏳ Buying ${solAmount} SOL worth...`);
     await ctx.answerCallbackQuery();
 
     try {
-      const result = await tradingService.buyToken(ctx.from.id, tokenMint, solAmount);
+      const result = await tradingService.buyToken(ctx.from.id, tokenMint, solAmount, settings.buySlippageBps);
       const msg = await buildBuyConfirmation(tokenMint, solAmount, result.signature, ctx.from.id);
       await ctx.editMessageText(msg, {
         parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
@@ -188,6 +190,7 @@ function register(bot) {
     await ctx.answerCallbackQuery();
 
     try {
+      const settings = withDefaults(await getUserSettings(ctx.from.id));
       const balInfo = await walletService.getTokenBalance(ctx.from.id, tokenMint);
       if (!balInfo || balInfo.uiAmount <= 0) {
         await ctx.editMessageText('❌ No token balance found.', { reply_markup: tradingMenuKeyboard() });
@@ -203,8 +206,7 @@ function register(bot) {
       const displayAmount = (balInfo.uiAmount * pct / 100).toFixed(balInfo.decimals > 4 ? 4 : balInfo.decimals);
       await ctx.editMessageText(`⏳ Selling ${pct}% (${displayAmount} tokens)...`);
 
-      const result = await tradingService.sellToken(ctx.from.id, tokenMint, sellRaw);
-      const settings = withDefaults(await getUserSettings(ctx.from.id));
+      const result = await tradingService.sellToken(ctx.from.id, tokenMint, sellRaw, settings.sellSlippageBps);
       const msg = await buildSellConfirmation(tokenMint, pct, displayAmount, result.signature, ctx.from.id, settings);
       await ctx.editMessageText(msg, {
         parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
@@ -371,13 +373,17 @@ function register(bot) {
         }
         return;
       }
-      // Not autoBuy, but still show token info with buy buttons
+      // Not autoBuy, but still show token info with buy buttons + security scan
       try {
-        const info = await dexService.getTokenInfo(text);
+        const [info, scan] = await Promise.all([
+          dexService.getTokenInfo(text).catch(() => null),
+          scanToken(text).catch(() => ({ safe: true, warnings: [] })),
+        ]);
         if (info) {
           const infoText = dexService.formatTokenInfo(info);
+          const scanWarnings = formatScanWarnings(scan.warnings);
           await ctx.reply(
-            `📊 *Token Detected*\n\n${infoText}\n\n\`${text}\``,
+            `📊 *Token Detected*\n\n${infoText}${scanWarnings}\n\n\`${text}\``,
             { parse_mode: 'Markdown', reply_markup: userBuyKeyboard(text, settings) }
           );
           return;

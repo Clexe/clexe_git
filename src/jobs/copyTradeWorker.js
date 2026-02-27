@@ -1,10 +1,11 @@
 const { getAllActiveCopyTrades } = require('../database/tradeRepo');
 const { getConnection, PublicKey } = require('../utils/solana');
+const { query } = require('../database/db');
 const tradingService = require('../services/tradingService');
 const logger = require('../utils/logger');
 
 let interval = null;
-const lastSignatures = new Map(); // wallet -> last seen sig
+const lastSignatures = new Map(); // in-memory cache, seeded from DB on first run
 
 function startCopyTradeWorker(bot, pollMs = 10000) {
   logger.info({ pollMs }, 'Copy trade worker started');
@@ -40,10 +41,27 @@ async function processCopyTrades(bot) {
         if (sigs.length === 0) continue;
 
         const latestSig = sigs[0].signature;
+
+        // Seed from DB on first encounter of this wallet
+        if (!lastSignatures.has(wallet)) {
+          const dbSig = subscribers[0].last_signature;
+          if (dbSig) lastSignatures.set(wallet, dbSig);
+        }
+
         const previousSig = lastSignatures.get(wallet);
 
         if (previousSig === latestSig) continue;
         lastSignatures.set(wallet, latestSig);
+
+        // Persist to DB so it survives restarts
+        try {
+          await query(
+            'UPDATE copy_trades SET last_signature = $1 WHERE target_wallet = $2 AND active = true',
+            [latestSig, wallet]
+          );
+        } catch (e) {
+          logger.warn({ err: e.message, wallet }, 'Failed to persist copy trade signature');
+        }
 
         // Skip on first run (just record the signature)
         if (!previousSig) continue;
@@ -108,11 +126,11 @@ async function processCopyTrades(bot) {
               // Sell all of this token
               const walletService = require('../services/walletService');
               const balance = await walletService.getTokenBalance(copyConfig.user_telegram_id, tokenMint);
-              if (balance <= 0) continue;
+              if (!balance || balance.uiAmount <= 0) continue;
               result = await tradingService.sellToken(
                 copyConfig.user_telegram_id,
                 tokenMint,
-                Math.floor(balance),
+                Number(balance.rawAmount),
                 copyConfig.slippage_bps
               );
             }
