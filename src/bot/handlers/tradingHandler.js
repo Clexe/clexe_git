@@ -5,10 +5,24 @@ const walletService = require('../../services/walletService');
 const { scanToken, formatScanWarnings } = require('../../services/tokenScanService');
 const { getUserSettings } = require('../../database/userRepo');
 const { getOpenPositionByMint } = require('../../database/tradeRepo');
-const { withDefaults } = require('./settingsHandler');
+const { withDefaults, getPriorityFee } = require('./settingsHandler');
 const { InlineKeyboard } = require('grammy');
 
 const sessions = new Map();
+
+// Per-user trade mutex to prevent concurrent trades
+const tradeLocks = new Map();
+async function withTradeLock(telegramId, fn) {
+  if (tradeLocks.get(telegramId)) {
+    throw new Error('A trade is already in progress. Please wait.');
+  }
+  tradeLocks.set(telegramId, true);
+  try {
+    return await fn();
+  } finally {
+    tradeLocks.delete(telegramId);
+  }
+}
 
 // Build quick-buy keyboard from user's settings
 function userBuyKeyboard(tokenMint, settings) {
@@ -144,6 +158,53 @@ function register(bot) {
     await ctx.answerCallbackQuery();
   });
 
+  // Confirm trade callbacks
+  bot.callbackQuery(/^confirm_buy:/, async (ctx) => {
+    const parts = ctx.callbackQuery.data.split(':');
+    const tokenMint = parts[1];
+    const solAmount = parseFloat(parts[2]);
+    const settings = withDefaults(await getUserSettings(ctx.from.id));
+    const pFee = getPriorityFee(settings);
+    await ctx.editMessageText(`⏳ Buying ${solAmount} SOL worth...`);
+    await ctx.answerCallbackQuery();
+    try {
+      const result = await withTradeLock(ctx.from.id, () =>
+        tradingService.buyToken(ctx.from.id, tokenMint, solAmount, settings.buySlippageBps, pFee));
+      const msg = await buildBuyConfirmation(tokenMint, solAmount, result.signature, ctx.from.id);
+      await ctx.editMessageText(msg, {
+        parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
+      });
+    } catch (err) {
+      await ctx.editMessageText(`❌ Buy failed: ${err.message}`, { reply_markup: tradingMenuKeyboard() });
+    }
+  });
+
+  bot.callbackQuery(/^confirm_sell:/, async (ctx) => {
+    const parts = ctx.callbackQuery.data.split(':');
+    const tokenMint = parts[1];
+    const sellRaw = parseInt(parts[2], 10);
+    const pct = parts[3] || null;
+    const settings = withDefaults(await getUserSettings(ctx.from.id));
+    const pFee = getPriorityFee(settings);
+    await ctx.editMessageText(`⏳ Selling...`);
+    await ctx.answerCallbackQuery();
+    try {
+      const result = await withTradeLock(ctx.from.id, () =>
+        tradingService.sellToken(ctx.from.id, tokenMint, sellRaw, settings.sellSlippageBps, pFee));
+      const msg = await buildSellConfirmation(tokenMint, pct ? parseInt(pct, 10) : null, sellRaw, result.signature, ctx.from.id, settings);
+      await ctx.editMessageText(msg, {
+        parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
+      });
+    } catch (err) {
+      await ctx.editMessageText(`❌ Sell failed: ${err.message}`, { reply_markup: tradingMenuKeyboard() });
+    }
+  });
+
+  bot.callbackQuery('cancel_trade', async (ctx) => {
+    await ctx.editMessageText('❌ Trade cancelled.', { reply_markup: tradingMenuKeyboard() });
+    await ctx.answerCallbackQuery();
+  });
+
   // Quick buy callback: qbuy:<mint>:<amount>
   bot.callbackQuery(/^qbuy:/, async (ctx) => {
     const parts = ctx.callbackQuery.data.split(':');
@@ -159,11 +220,27 @@ function register(bot) {
 
     const solAmount = parseFloat(amountStr);
     const settings = withDefaults(await getUserSettings(ctx.from.id));
+    const pFee = getPriorityFee(settings);
+
+    // Confirm trades: show preview before executing
+    if (settings.confirmTrades) {
+      const kb = new InlineKeyboard()
+        .text('Confirm Buy', `confirm_buy:${tokenMint}:${solAmount}`).row()
+        .text('Cancel', 'cancel_trade');
+      await ctx.editMessageText(
+        `🟢 *Confirm Buy*\n\nToken: \`${tokenMint.slice(0, 8)}...\`\nAmount: *${solAmount} SOL*\nSlippage: ${settings.buySlippageBps / 100}%\nTX Speed: ${settings.txSpeed}`,
+        { parse_mode: 'Markdown', reply_markup: kb }
+      );
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
     await ctx.editMessageText(`⏳ Buying ${solAmount} SOL worth...`);
     await ctx.answerCallbackQuery();
 
     try {
-      const result = await tradingService.buyToken(ctx.from.id, tokenMint, solAmount, settings.buySlippageBps);
+      const result = await withTradeLock(ctx.from.id, () =>
+        tradingService.buyToken(ctx.from.id, tokenMint, solAmount, settings.buySlippageBps, pFee));
       const msg = await buildBuyConfirmation(tokenMint, solAmount, result.signature, ctx.from.id);
       await ctx.editMessageText(msg, {
         parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
@@ -191,6 +268,7 @@ function register(bot) {
 
     try {
       const settings = withDefaults(await getUserSettings(ctx.from.id));
+      const pFee = getPriorityFee(settings);
       const balInfo = await walletService.getTokenBalance(ctx.from.id, tokenMint);
       if (!balInfo || balInfo.uiAmount <= 0) {
         await ctx.editMessageText('❌ No token balance found.', { reply_markup: tradingMenuKeyboard() });
@@ -204,9 +282,23 @@ function register(bot) {
         return;
       }
       const displayAmount = (balInfo.uiAmount * pct / 100).toFixed(balInfo.decimals > 4 ? 4 : balInfo.decimals);
+
+      // Confirm trades: show preview before executing
+      if (settings.confirmTrades) {
+        const kb = new InlineKeyboard()
+          .text('Confirm Sell', `confirm_sell:${tokenMint}:${sellRaw}:${pct}`).row()
+          .text('Cancel', 'cancel_trade');
+        await ctx.editMessageText(
+          `🔴 *Confirm Sell*\n\nToken: \`${tokenMint.slice(0, 8)}...\`\nSelling: *${pct}%* (${displayAmount} tokens)\nSlippage: ${settings.sellSlippageBps / 100}%\nTX Speed: ${settings.txSpeed}`,
+          { parse_mode: 'Markdown', reply_markup: kb }
+        );
+        return;
+      }
+
       await ctx.editMessageText(`⏳ Selling ${pct}% (${displayAmount} tokens)...`);
 
-      const result = await tradingService.sellToken(ctx.from.id, tokenMint, sellRaw, settings.sellSlippageBps);
+      const result = await withTradeLock(ctx.from.id, () =>
+        tradingService.sellToken(ctx.from.id, tokenMint, sellRaw, settings.sellSlippageBps, pFee));
       const msg = await buildSellConfirmation(tokenMint, pct, displayAmount, result.signature, ctx.from.id, settings);
       await ctx.editMessageText(msg, {
         parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
@@ -256,9 +348,12 @@ function register(bot) {
         await ctx.reply('❌ Invalid SOL amount.');
         return;
       }
+      const bSettings = withDefaults(await getUserSettings(ctx.from.id));
+      const bPFee = getPriorityFee(bSettings);
       await ctx.reply(`⏳ Buying ${solAmount} SOL worth of \`${tokenMint.slice(0, 8)}...\``, { parse_mode: 'Markdown' });
       try {
-        const result = await tradingService.buyToken(ctx.from.id, tokenMint, solAmount);
+        const result = await withTradeLock(ctx.from.id, () =>
+          tradingService.buyToken(ctx.from.id, tokenMint, solAmount, bSettings.buySlippageBps, bPFee));
         const msg = await buildBuyConfirmation(tokenMint, solAmount, result.signature, ctx.from.id);
         await ctx.reply(msg, { parse_mode: 'Markdown', link_preview_is_disabled: true });
       } catch (err) {
@@ -304,11 +399,13 @@ function register(bot) {
         await ctx.reply('❌ Invalid amount.');
         return;
       }
+      const sSettings = withDefaults(await getUserSettings(ctx.from.id));
+      const sPFee = getPriorityFee(sSettings);
       await ctx.reply(`⏳ Selling ${amount} of \`${tokenMint.slice(0, 8)}...\``, { parse_mode: 'Markdown' });
       try {
-        const result = await tradingService.sellToken(ctx.from.id, tokenMint, Math.round(amount));
-        const sellSettings = withDefaults(await getUserSettings(ctx.from.id));
-        const msg = await buildSellConfirmation(tokenMint, null, Math.round(amount), result.signature, ctx.from.id, sellSettings);
+        const result = await withTradeLock(ctx.from.id, () =>
+          tradingService.sellToken(ctx.from.id, tokenMint, Math.round(amount), sSettings.sellSlippageBps, sPFee));
+        const msg = await buildSellConfirmation(tokenMint, null, Math.round(amount), result.signature, ctx.from.id, sSettings);
         await ctx.reply(msg, { parse_mode: 'Markdown', link_preview_is_disabled: true });
       } catch (err) {
         await ctx.reply(`❌ Sell failed: ${err.message}`);
@@ -365,7 +462,9 @@ function register(bot) {
             const infoText = dexService.formatTokenInfo(info);
             await ctx.reply(infoText, { parse_mode: 'Markdown' });
           }
-          const result = await tradingService.buyToken(ctx.from.id, text, autoAmount);
+          const autoPFee = getPriorityFee(settings);
+          const result = await withTradeLock(ctx.from.id, () =>
+            tradingService.buyToken(ctx.from.id, text, autoAmount, settings.buySlippageBps, autoPFee));
           const msg = await buildBuyConfirmation(text, autoAmount, result.signature, ctx.from.id);
           await ctx.reply(msg, { parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard() });
         } catch (err) {
@@ -426,9 +525,11 @@ function register(bot) {
           return;
         }
         sessions.delete(ctx.from.id);
+        const txPFee = getPriorityFee(settings);
         await ctx.reply(`⏳ Buying ${solAmount} SOL worth...`);
         try {
-          const result = await tradingService.buyToken(ctx.from.id, session.tokenMint, solAmount);
+          const result = await withTradeLock(ctx.from.id, () =>
+            tradingService.buyToken(ctx.from.id, session.tokenMint, solAmount, settings.buySlippageBps, txPFee));
           const msg = await buildBuyConfirmation(session.tokenMint, solAmount, result.signature, ctx.from.id);
           await ctx.reply(msg, {
             parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
@@ -467,11 +568,12 @@ function register(bot) {
           return;
         }
         sessions.delete(ctx.from.id);
+        const sellPFee = getPriorityFee(settings);
         await ctx.reply('⏳ Selling...');
         try {
-          const result = await tradingService.sellToken(ctx.from.id, session.tokenMint, Math.round(amount));
-          const sellSettings = withDefaults(await getUserSettings(ctx.from.id));
-          const msg = await buildSellConfirmation(session.tokenMint, null, Math.round(amount), result.signature, ctx.from.id, sellSettings);
+          const result = await withTradeLock(ctx.from.id, () =>
+            tradingService.sellToken(ctx.from.id, session.tokenMint, Math.round(amount), settings.sellSlippageBps, sellPFee));
+          const msg = await buildSellConfirmation(session.tokenMint, null, Math.round(amount), result.signature, ctx.from.id, settings);
           await ctx.reply(msg, {
             parse_mode: 'Markdown', link_preview_is_disabled: true, reply_markup: tradingMenuKeyboard(),
           });

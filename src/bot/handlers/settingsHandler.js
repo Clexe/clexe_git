@@ -270,13 +270,13 @@ function formatSettingsText(s) {
     `*TX Speed:* ${speedLabel}\n` +
     `*Buy Slippage:* ${s.buySlippageBps / 100}%\n` +
     `*Sell Slippage:* ${s.sellSlippageBps / 100}%\n\n` +
-    `MEV Protect (Buy): *${onOff(s.mevProtectBuy)}*\n` +
-    `MEV Protect (Sell): *${onOff(s.mevProtectSell)}*\n` +
+    `MEV Protect (Buy): *${onOff(s.mevProtectBuy)}* _(coming soon)_\n` +
+    `MEV Protect (Sell): *${onOff(s.mevProtectSell)}* _(coming soon)_\n` +
     `Auto Buy: *${onOff(s.autoBuy)}*\n` +
-    `Auto Sell: *${onOff(s.autoSell)}*\n` +
+    `Auto Sell: *${onOff(s.autoSell)}* _(coming soon)_\n` +
     `Confirm Trades: *${onOff(s.confirmTrades)}*\n` +
     `PnL Cards: *${onOff(s.pnlCards)}*\n` +
-    `Chart Previews: *${onOff(s.chartPreviews)}*`
+    `Chart Previews: *${onOff(s.chartPreviews)}* _(coming soon)_`
   );
 }
 

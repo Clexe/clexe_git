@@ -33,7 +33,7 @@ const config = {
     maxSlippageBps: parseInt(process.env.MAX_SLIPPAGE_BPS || '300', 10),
     priorityFeeLamports: parseInt(process.env.PRIORITY_FEE_LAMPORTS || '100000', 10),
     txTimeoutMs: parseInt(process.env.TX_TIMEOUT_MS || '60000', 10),
-    tradingFeeBps: parseInt(process.env.TRADING_FEE_BPS || '200', 10),
+    tradingFeeBps: parseInt(process.env.TRADING_FEE_BPS || '100', 10),
     dexFeeBps: parseInt(process.env.DEX_FEE_BPS || '400', 10),
     platformFeeWallet: process.env.PLATFORM_FEE_WALLET,
   },

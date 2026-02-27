@@ -72,35 +72,57 @@ function register(bot) {
   });
 
   bot.callbackQuery('wallet:export', async (ctx) => {
-    try {
-      const privateKey = await walletService.exportPrivateKey(ctx.from.id);
-      // Send as a separate message that the user can delete
-      await ctx.reply(
-        `🔑 *Your Private Key:*\n\n\`${privateKey}\`\n\n` +
-        `⚠️ *DELETE THIS MESSAGE NOW!* Never share your key with anyone.`,
-        { parse_mode: 'Markdown' }
-      );
-      await ctx.editMessageText('🔑 Private key sent. Please delete the message.', {
-        reply_markup: walletMenuKeyboard(),
-      });
-    } catch (err) {
-      await ctx.editMessageText(`❌ ${err.message}`, { reply_markup: walletMenuKeyboard() });
-    }
+    sessions.set(ctx.from.id, { action: 'confirm_export' });
+    await ctx.editMessageText(
+      '🔑 *Export Private Key*\n\n' +
+      '⚠️ *WARNING:* Anyone with your private key can steal all your funds.\n\n' +
+      'Type *CONFIRM* to export your key, or "cancel" to abort.',
+      { parse_mode: 'Markdown' }
+    );
     await ctx.answerCallbackQuery();
   });
 
-  // Handle import wallet text input
+  // Handle wallet text input (import + export confirmation)
   bot.on('message:text', async (ctx, next) => {
     const session = sessions.get(ctx.from.id);
-    if (!session || session.action !== 'import_wallet') return next();
+    if (!session) return next();
 
-    sessions.delete(ctx.from.id);
     const text = ctx.message.text.trim();
 
     if (text.toLowerCase() === 'cancel') {
-      await ctx.reply('❌ Import cancelled.', { reply_markup: walletMenuKeyboard() });
+      sessions.delete(ctx.from.id);
+      await ctx.reply('❌ Cancelled.', { reply_markup: walletMenuKeyboard() });
       return;
     }
+
+    // Export key confirmation flow
+    if (session.action === 'confirm_export') {
+      sessions.delete(ctx.from.id);
+      if (text !== 'CONFIRM') {
+        await ctx.reply('❌ Export cancelled. You must type exactly *CONFIRM* (all caps).', {
+          parse_mode: 'Markdown', reply_markup: walletMenuKeyboard(),
+        });
+        return;
+      }
+      try {
+        const privateKey = await walletService.exportPrivateKey(ctx.from.id);
+        await ctx.reply(
+          `🔑 *Your Private Key:*\n\n\`${privateKey}\`\n\n` +
+          `⚠️ *DELETE THIS MESSAGE NOW!* Never share your key with anyone.`,
+          { parse_mode: 'Markdown' }
+        );
+        await ctx.reply('🔑 Private key sent above. Please delete it after saving.', {
+          reply_markup: walletMenuKeyboard(),
+        });
+      } catch (err) {
+        await ctx.reply(`❌ ${err.message}`, { reply_markup: walletMenuKeyboard() });
+      }
+      return;
+    }
+
+    if (session.action !== 'import_wallet') return next();
+
+    sessions.delete(ctx.from.id);
 
     try {
       const result = await walletService.importWallet(ctx.from.id, ctx.from.username, ctx.from.first_name, text);

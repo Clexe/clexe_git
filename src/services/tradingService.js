@@ -66,7 +66,7 @@ async function getQuote(inputMint, outputMint, amount, slippageBps) {
   }
 }
 
-async function executeSwap(telegramId, { inputMint, outputMint, amount, slippageBps }) {
+async function executeSwap(telegramId, { inputMint, outputMint, amount, slippageBps, priorityFeeLamports }) {
   const tradeType = inputMint === SOL_MINT ? 'buy' : 'sell';
   const tradeId = await createTrade({
     userTelegramId: telegramId,
@@ -94,7 +94,7 @@ async function executeSwap(telegramId, { inputMint, outputMint, amount, slippage
       userPublicKey: keypair.publicKey.toBase58(),
       wrapAndUnwrapSol: true,
       dynamicComputeUnitLimit: true,
-      prioritizationFeeLamports: config.trading.priorityFeeLamports,
+      prioritizationFeeLamports: priorityFeeLamports || config.trading.priorityFeeLamports,
     }, { headers: jupiterHeaders(), timeout: 15000 });
 
     const swapTransactionBuf = Buffer.from(swapData.swapTransaction, 'base64');
@@ -201,22 +201,24 @@ async function executeSwap(telegramId, { inputMint, outputMint, amount, slippage
   }
 }
 
-async function buyToken(telegramId, tokenMint, solAmount, slippageBps) {
+async function buyToken(telegramId, tokenMint, solAmount, slippageBps, priorityFeeLamports) {
   const lamports = Math.round(solAmount * 1e9);
   return executeSwap(telegramId, {
     inputMint: SOL_MINT,
     outputMint: tokenMint,
     amount: lamports,
     slippageBps,
+    priorityFeeLamports,
   });
 }
 
-async function sellToken(telegramId, tokenMint, tokenAmount, slippageBps) {
+async function sellToken(telegramId, tokenMint, tokenAmount, slippageBps, priorityFeeLamports) {
   return executeSwap(telegramId, {
     inputMint: tokenMint,
     outputMint: SOL_MINT,
     amount: tokenAmount,
     slippageBps,
+    priorityFeeLamports,
   });
 }
 
